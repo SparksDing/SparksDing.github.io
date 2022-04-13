@@ -1,1 +1,1 @@
-{"template":"react_static_root__/src/pages/grants.js","sharedHashesByProp":{},"data":{"grants":{"status":1,"data":[]}},"path":"grants"}
+{"template":"react_static_root__/src/pages/grants.js","sharedHashesByProp":{},"data":{"grants":{"status":1,"data":[{"id":1,"name":"国家自然科学基金面上项目","principal":"杜晓宇","level":"国家级项目","startTime":null,"deadline":null,"cost":"60"}]}},"path":"grants"}
