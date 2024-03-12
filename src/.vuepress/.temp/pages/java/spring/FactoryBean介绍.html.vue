@@ -1,0 +1,19 @@
+<template><div><blockquote>
+<p>FactoryBean 是 Spring 框架中的一个接口，用于创建复杂对象或者具有特殊构建逻辑的对象。通常情况下，Spring 容器会通过调用 FactoryBean 的 getObject() 方法来获取对象实例，从而隐藏了对象的创建细节。</p>
+</blockquote>
+<p>FactoryBean 接口定义了以下方法：</p>
+<ol>
+<li>getObject(): 该方法用于返回所管理的对象实例。</li>
+<li>getObjectType(): 该方法用于返回所管理对象的类型。</li>
+<li>isSingleton(): 该方法用于指示所管理的对象是否是单例。</li>
+<li>isPrototype(): 该方法用于指示所管理的对象是否是原型。</li>
+<li>destroy(): 该方法用于销毁对象。</li>
+</ol>
+<p>通过实现 FactoryBean 接口，可以在 Spring 容器中灵活地创建对象，并且可以基于特定的条件来创建不同的对象实例。常见的应用场景包括：</p>
+<p>使用 FactoryBean 创建单例或者原型对象，以延迟对象的创建或者实现对象的惰性加载。<br>
+使用 FactoryBean 封装复杂的对象创建逻辑，例如对象的初始化、配置、依赖注入等。<br>
+使用 FactoryBean 创建代理对象，实现 AOP（面向切面编程）等功能。<br>
+总之，FactoryBean 接口为 Spring 提供了一种灵活、可扩展的对象创建机制，可以根据具体的业务需求来定制对象的创建过程。</p>
+</div></template>
+
+
