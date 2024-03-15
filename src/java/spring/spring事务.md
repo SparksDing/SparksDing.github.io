@@ -5,7 +5,8 @@ date: 2024-03-10
 category:
   - java
 tag:
-  - spring transaction
+  - spring 
+  - transaction
 ---
 
 ### **spring事务**

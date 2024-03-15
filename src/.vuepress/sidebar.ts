@@ -19,8 +19,8 @@ export default sidebar([
         ],
       }
     ],
-  }
-  ,
+  },
+  
   {
     text: "数据库",
     icon: "box",
@@ -72,7 +72,11 @@ export default sidebar([
           "spring零碎知识点.md",
           "FactoryBean介绍.md",
           "spring AOP.md",
-          "注解处理时机.md"
+          "注解处理时机.md",
+          "spring条件注解.md",
+          "spring自动装配原理.md",
+          "spring整合jdbc.md",
+          "jdbc-连接池-orm-sharding_jdbc.md"
         ],
       },
       {
@@ -148,6 +152,63 @@ export default sidebar([
         ],
       },
       "problems.md"
+    ],
+  },
+  {
+    text: "分布式",
+    icon: "remote",
+    prefix: "/distributed-system/",
+    activeMatch: "^/distributed-system/$",
+    collapsible: true,
+    children: [
+      {
+        text: "微服务",
+        // icon: "react",
+        prefix: "microservice/",
+        collapsible: true,
+        children: [
+          "组件.md",
+        ],
+      },
+      {
+        text: "k8s",
+        // icon: "react",
+        prefix: "k8s/",
+        collapsible: true,
+        children: [
+          "概述.md",
+        ],
+      },
+      "overview.md"
+    ],
+  },
+  {
+    text: "其他",
+    icon: "arrow",
+    prefix: "/others/",
+    activeMatch: "^/others/$",
+    collapsible: true,
+    children: [
+      {
+        text: "mac",
+        // icon: "react",
+        prefix: "mac/",
+        collapsible: true,
+        children: [
+          "idea快捷键.md",
+          "excalidraw快捷键.md"
+        ],
+      },
+      {
+        text: "webtools",
+        // icon: "react",
+        prefix: "webtools/",
+        collapsible: true,
+        children: [
+          "vuepress相关.md",
+          "一些好用的web网站.md"
+        ],
+      }
     ],
   },
 ]);

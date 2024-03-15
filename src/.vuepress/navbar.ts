@@ -18,6 +18,16 @@ export default navbar([
     link: '/database/'
   },
   {
+    text: '微服务',
+    icon: 'remote',
+    link: '/distributed-system/'
+  },
+  {
+    text: '其他',
+    icon: 'arrow',
+    link: '/others/'
+  },
+  {
     text: '标签',
     icon: 'tag',
     link: '/tag/javascript/'
@@ -31,10 +41,5 @@ export default navbar([
     text: '时间轴',
     icon: 'time',
     link: '/timeline/'
-  },
-  {
-    text: '个人介绍',
-    icon: 'arrow',
-    link: '/intro/'
   },
 ]);

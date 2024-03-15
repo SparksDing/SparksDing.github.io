@@ -1,16 +1,16 @@
 import { defineClientConfig } from "@vuepress/client";
-import { VPLink } from "/Users/sparksd/codeCellar/web/blogs/node_modules/vuepress-shared/lib/client/index.js";
+import { VPLink } from "/Users/sparksd/codeCellar/web/SparksDing.github.io/node_modules/vuepress-shared/lib/client/index.js";
 
-import { HopeIcon, Layout, NotFound, useScrollPromise, injectDarkmode, setupDarkmode, setupSidebarItems } from "/Users/sparksd/codeCellar/web/blogs/node_modules/vuepress-theme-hope/lib/bundle/export.js";
+import { HopeIcon, Layout, NotFound, useScrollPromise, injectDarkmode, setupDarkmode, setupSidebarItems } from "/Users/sparksd/codeCellar/web/SparksDing.github.io/node_modules/vuepress-theme-hope/lib/bundle/export.js";
 
-import { defineAutoCatalogIconComponent } from "/Users/sparksd/codeCellar/web/blogs/node_modules/vuepress-plugin-auto-catalog/lib/client/index.js"
-import { BlogCategory, BlogHome, BlogType, BloggerInfo, Timeline, setupBlog } from "/Users/sparksd/codeCellar/web/blogs/node_modules/vuepress-theme-hope/lib/bundle/modules/blog/export.js";
-import "/Users/sparksd/codeCellar/web/blogs/node_modules/vuepress-theme-hope/lib/bundle/modules/blog/styles/all.scss";
-import { GlobalEncrypt, LocalEncrypt } from "/Users/sparksd/codeCellar/web/blogs/node_modules/vuepress-theme-hope/lib/bundle/modules/encrypt/export.js";
-import "/Users/sparksd/codeCellar/web/blogs/node_modules/vuepress-theme-hope/lib/bundle/modules/encrypt/styles/all.scss"
-import Slide from "/Users/sparksd/codeCellar/web/blogs/node_modules/vuepress-plugin-md-enhance/lib/client/SlidePage.js";
+import { defineAutoCatalogIconComponent } from "/Users/sparksd/codeCellar/web/SparksDing.github.io/node_modules/vuepress-plugin-auto-catalog/lib/client/index.js"
+import { BlogCategory, BlogHome, BlogType, BloggerInfo, Timeline, setupBlog } from "/Users/sparksd/codeCellar/web/SparksDing.github.io/node_modules/vuepress-theme-hope/lib/bundle/modules/blog/export.js";
+import "/Users/sparksd/codeCellar/web/SparksDing.github.io/node_modules/vuepress-theme-hope/lib/bundle/modules/blog/styles/all.scss";
+import { GlobalEncrypt, LocalEncrypt } from "/Users/sparksd/codeCellar/web/SparksDing.github.io/node_modules/vuepress-theme-hope/lib/bundle/modules/encrypt/export.js";
+import "/Users/sparksd/codeCellar/web/SparksDing.github.io/node_modules/vuepress-theme-hope/lib/bundle/modules/encrypt/styles/all.scss"
+import Slide from "/Users/sparksd/codeCellar/web/SparksDing.github.io/node_modules/vuepress-plugin-md-enhance/lib/client/SlidePage.js";
 
-import "/Users/sparksd/codeCellar/web/blogs/node_modules/vuepress-theme-hope/lib/bundle/styles/all.scss";
+import "/Users/sparksd/codeCellar/web/SparksDing.github.io/node_modules/vuepress-theme-hope/lib/bundle/styles/all.scss";
 
 defineAutoCatalogIconComponent(HopeIcon);
 
