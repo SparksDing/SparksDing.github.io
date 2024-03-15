@@ -37,6 +37,7 @@ jobs:
         run: |-
           npm run docs:build
           > src/.vuepress/dist/.nojekyll
+          cp src/google5641ad8595d5b53e.html src/.vuepress/dist/
 
       - name: 部署文档
         uses: JamesIves/github-pages-deploy-action@v4
