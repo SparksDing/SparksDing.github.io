@@ -67,6 +67,19 @@ export default sidebar([
         collapsible: true,
         
         children: [
+          {
+            text: "spring-starter",
+            prefix: "spring-starter/",
+            // icon: "java",
+            collapsible: true,
+            
+            children: [
+              "spring整合jdbc.md",
+              "spring整合rocketmq.md",
+              "spring整合sharding-jdbc.md",
+              "spring-statemachine-starter.md"
+            ],
+          },
           "spring扩展点.md",
           "spring事务.md",
           "spring零碎知识点.md",
@@ -75,8 +88,7 @@ export default sidebar([
           "注解处理时机.md",
           "spring条件注解.md",
           "spring自动装配原理.md",
-          "spring整合jdbc.md",
-          "jdbc-连接池-orm-sharding_jdbc.md"
+          "jdbc-连接池-orm-sharding_jdbc.md",
         ],
       },
       {

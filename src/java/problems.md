@@ -24,3 +24,8 @@ tag:
 - [ ] jvm
 - [ ] 事务
 - [ ] aop
+
+
+
+## 好的博文
+[Java学习笔记](https://java.isture.com/deploy/mq-rabbitmq/rabbitmq-x-overview.html)

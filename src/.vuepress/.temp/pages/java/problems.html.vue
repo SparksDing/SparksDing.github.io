@@ -15,6 +15,8 @@
 <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-8" disabled="disabled"><label class="task-list-item-label" for="task-item-8"> 事务</label></li>
 <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-9" disabled="disabled"><label class="task-list-item-label" for="task-item-9"> aop</label></li>
 </ul>
+<h2 id="好的博文" tabindex="-1"><a class="header-anchor" href="#好的博文" aria-hidden="true">#</a> 好的博文</h2>
+<p><a href="https://java.isture.com/deploy/mq-rabbitmq/rabbitmq-x-overview.html" target="_blank" rel="noopener noreferrer">Java学习笔记<ExternalLinkIcon/></a></p>
 </div></template>
 
 
