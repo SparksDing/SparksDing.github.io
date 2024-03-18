@@ -75,6 +75,7 @@ export default sidebar([
             
             children: [
               "spring整合jdbc.md",
+              "spring整合feign.md",
               "spring整合rocketmq.md",
               "spring整合sharding-jdbc.md",
               "spring-statemachine-starter.md"
@@ -159,6 +160,47 @@ export default sidebar([
             
             children: [
               "netty骨架.md",
+            ],
+          },
+          {
+            text: "feign",
+            prefix: "feign/",
+            // icon: "java",
+            collapsible: true,
+            
+            children: [
+              "手写rpc.md",
+              "feign如何整合ribbon和consul.md"
+            ],
+          },
+          {
+            text: "rocketmq",
+            prefix: "rocketmq/",
+            // icon: "java",
+            collapsible: true,
+            
+            children: [
+              "rocketmq-spring-boot-starter源码分析.md",
+            ],
+          },
+          {
+            text: "spring-data-jpa",
+            prefix: "spring-data-jpa/",
+            // icon: "java",
+            collapsible: true,
+            
+            children: [
+              "spring-data-jpa使用.md",
+            ],
+          },
+          {
+            text: "spring-statemachine",
+            prefix: "spring-statemachine/",
+            // icon: "java",
+            collapsible: true,
+            
+            children: [
+              "使用.md",
             ],
           },
         ],
