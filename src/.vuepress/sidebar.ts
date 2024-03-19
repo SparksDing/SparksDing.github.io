@@ -233,6 +233,15 @@ export default sidebar([
           "概述.md",
         ],
       },
+      {
+        text: "raft协议",
+        // icon: "react",
+        prefix: "raft/",
+        collapsible: true,
+        children: [
+          "raft介绍.md",
+        ],
+      },
       "overview.md"
     ],
   },
