@@ -53,6 +53,8 @@
 <figure><img src="/assets/images/java/awesome-project/tomcat/tomcat处理一次请求.png" alt="Tomcat处理http请求" width="700" tabindex="0" loading="lazy"><figcaption>Tomcat处理http请求</figcaption></figure>
 <h3 id="参考文章" tabindex="-1"><a class="header-anchor" href="#参考文章" aria-hidden="true">#</a> 参考文章</h3>
 <p><a href="https://www.cnblogs.com/runnable/p/12905401.html" target="_blank" rel="noopener noreferrer">Tomcat视角看一次http请求<ExternalLinkIcon/></a></p>
+<p><a href="https://objcoding.com/2019/05/30/tomcat-architecture/" target="_blank" rel="noopener noreferrer">聊聊Tomcat的架构设计<ExternalLinkIcon/></a></p>
+<p><a href="https://juejin.cn/post/6844903957752446984" target="_blank" rel="noopener noreferrer">SpringBoot 系列-内嵌 Tomcat 的实现原理解析<ExternalLinkIcon/></a></p>
 </div></template>
 
 

@@ -95,3 +95,7 @@ List<Servlet> servlets
 ### 参考文章
 
 [Tomcat视角看一次http请求](https://www.cnblogs.com/runnable/p/12905401.html)
+
+[聊聊Tomcat的架构设计](https://objcoding.com/2019/05/30/tomcat-architecture/)
+
+[SpringBoot 系列-内嵌 Tomcat 的实现原理解析](https://juejin.cn/post/6844903957752446984)

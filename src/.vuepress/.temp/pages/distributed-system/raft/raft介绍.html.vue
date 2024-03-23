@@ -41,6 +41,7 @@
 <p>该日志条目当前未提交，因此不会更新节点的值。</p>
 <h2 id="参考文章" tabindex="-1"><a class="header-anchor" href="#参考文章" aria-hidden="true">#</a> 参考文章</h2>
 <p><a href="http://thesecretlivesofdata.com/raft/" target="_blank" rel="noopener noreferrer">raft动画演示<ExternalLinkIcon/></a></p>
+<p><a href="https://cloud.tencent.com/developer/article/1082991" target="_blank" rel="noopener noreferrer">由Consul谈到Raft<ExternalLinkIcon/></a></p>
 </div></template>
 
 

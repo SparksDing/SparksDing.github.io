@@ -300,4 +300,7 @@ private TransactionStatus startTransaction(TransactionDefinition definition, Obj
 ![https://www.cnblogs.com/vipstone/p/16735893.html](/assets/images/java/spring/事务传播机制.png =700x)
 
 ### **参考文章**
-[cnblogs](https://www.cnblogs.com/dennyzhangdd/p/9602673.html)
+
+[spring事务详解（三）源码详解](https://www.cnblogs.com/dennyzhangdd/p/9602673.html)
+
+[18个示例详解 Spring 事务传播机制](https://cloud.tencent.com/developer/article/2226182)

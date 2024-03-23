@@ -90,6 +90,7 @@ export default sidebar([
           "spring条件注解.md",
           "spring自动装配原理.md",
           "jdbc-连接池-orm-sharding_jdbc.md",
+          "springMVC.md"
         ],
       },
       {
@@ -240,9 +241,11 @@ export default sidebar([
         collapsible: true,
         children: [
           "raft介绍.md",
+          "raft实验.md"
         ],
       },
-      "overview.md"
+      "overview.md",
+      "CAP.md"
     ],
   },
   {

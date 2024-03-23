@@ -102,3 +102,6 @@ tag:
 ## 参考文章
 
 [raft动画演示](http://thesecretlivesofdata.com/raft/)
+
+
+[由Consul谈到Raft](https://cloud.tencent.com/developer/article/1082991)
