@@ -268,7 +268,8 @@
 </code></pre><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="事务传播机制" tabindex="-1"><a class="header-anchor" href="#事务传播机制" aria-hidden="true">#</a> <strong>事务传播机制</strong></h3>
 <figure><img src="/assets/images/java/spring/事务传播机制.png" alt="https://www.cnblogs.com/vipstone/p/16735893.html" width="700" tabindex="0" loading="lazy"><figcaption><a href="https://www.cnblogs.com/vipstone/p/16735893.html" target="_blank" rel="noopener noreferrer">https://www.cnblogs.com/vipstone/p/16735893.html<ExternalLinkIcon/></a></figcaption></figure>
 <h3 id="参考文章" tabindex="-1"><a class="header-anchor" href="#参考文章" aria-hidden="true">#</a> <strong>参考文章</strong></h3>
-<p><a href="https://www.cnblogs.com/dennyzhangdd/p/9602673.html" target="_blank" rel="noopener noreferrer">cnblogs<ExternalLinkIcon/></a></p>
+<p><a href="https://www.cnblogs.com/dennyzhangdd/p/9602673.html" target="_blank" rel="noopener noreferrer">spring事务详解（三）源码详解<ExternalLinkIcon/></a></p>
+<p><a href="https://cloud.tencent.com/developer/article/2226182" target="_blank" rel="noopener noreferrer">18个示例详解 Spring 事务传播机制<ExternalLinkIcon/></a></p>
 </div></template>
 
 

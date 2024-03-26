@@ -274,6 +274,15 @@ export default sidebar([
           "vuepress相关.md",
           "一些好用的web网站.md"
         ],
+      },
+      {
+        text: "运维",
+        // icon: "react",
+        prefix: "operation_and_maintenance/",
+        collapsible: true,
+        children: [
+          "ngrok部署.md",
+        ],
       }
     ],
   },
