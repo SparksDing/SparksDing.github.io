@@ -43,7 +43,7 @@ openssl genrsa -out device.key 2048
 openssl req -new -key device.key -subj "/CN=$NGROK_DOMAIN" -out device.csr
 openssl req -x509 -new -nodes -key rootCA.key -subj "/CN=$NGROK_DOMAIN" -days 5000 -out rootCA.pem
 
-echo subjectAltName = IP:47.116.33.253 > extfile.cnf
+echo subjectAltName = IP:你的公网IP > extfile.cnf
 openssl x509 -req -in device.csr -CA rootCA.pem -CAkey rootCA.key -CAcreateserial -extfile extfile.cnf -out device.crt -days 5000
 
 cp -r rootCA.pem assets/client/tls/ngrokroot.crt
