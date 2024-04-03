@@ -1,0 +1,1 @@
+import{_ as t}from"./plugin-vue_export-helper-c27b6911.js";import{o as c,c as o,a as e}from"./app-964234bf.js";const m={};function n(r,_){return c(),o("div",null,[e(" ![mmdctjj.jpg](/mmdctjj.jpg?) "),e(" 大家好，我是萌萌哒草头将军，欢迎关注我。 ")])}const d=t(m,[["render",n],["__file","index.html.vue"]]);export{d as default};
