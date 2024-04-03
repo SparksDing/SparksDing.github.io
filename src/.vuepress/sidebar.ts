@@ -235,6 +235,15 @@ export default sidebar([
         ],
       },
       {
+        text: "redis",
+        // icon: "react",
+        prefix: "redis/",
+        collapsible: true,
+        children: [
+          "redis基本数据结构.md",
+        ],
+      },
+      {
         text: "raft协议",
         // icon: "react",
         prefix: "raft/",
