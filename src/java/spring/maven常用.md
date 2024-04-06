@@ -1,7 +1,7 @@
 ---
 title: maven常用
 isTimeLine: true
-date: 2024-03-15
+date: 2024-04-06
 category:
   - spring
 tag:
@@ -10,6 +10,13 @@ tag:
 
 
 ```xml
+<parent>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-parent</artifactId>
+  <version>2.3.12.RELEASE</version>
+  <relativePath/> <!-- lookup parent from repository -->
+</parent>
+
 <dependencies>
   <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -58,6 +65,13 @@ tag:
 
 
 ```xml
+<parent>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-parent</artifactId>
+  <version>2.3.12.RELEASE</version>
+  <relativePath/> <!-- lookup parent from repository -->
+</parent>
+
 <dependencies>
   <dependency>
     <groupId>org.springframework.boot</groupId>
