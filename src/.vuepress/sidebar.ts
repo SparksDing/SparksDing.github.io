@@ -90,7 +90,8 @@ export default sidebar([
           "spring条件注解.md",
           "spring自动装配原理.md",
           "jdbc-连接池-orm-sharding_jdbc.md",
-          "springMVC.md"
+          "springMVC.md",
+          "maven常用.md"
         ],
       },
       {
