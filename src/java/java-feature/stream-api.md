@@ -83,3 +83,58 @@ IntSummaryStatistics stats = Stream.of(1, 2, 3, 4, 5)
 
 这些示例展示了一些常见的 `collect` 方法的用法，可以将流中的元素收集到不同类型的集合或进行其他处理。
 
+
+
+### flatMap
+
+`flatMap` 是 Java Stream API 中的一个中间操作，它用于将流的每个元素映射为一个流，并将所有映射的流扁平化为单个流。这意味着它可以将一个元素映射为多个元素，然后将这些元素合并到一个流中。
+
+以下是一些常见的 `flatMap` 方法的用法及示例：
+
+1. 将列表转换为流：
+```java
+List<List<String>> list = Arrays.asList(
+    Arrays.asList("a", "b"),
+    Arrays.asList("c", "d"),
+    Arrays.asList("e", "f")
+);
+List<String> result = list.stream()
+    .flatMap(Collection::stream)
+    .collect(Collectors.toList());
+// 结果为 ["a", "b", "c", "d", "e", "f"]
+```
+
+2. 从对象中提取流：
+```java
+List<Person> persons = Arrays.asList(
+    new Person("Alice", Arrays.asList("Java", "Python")),
+    new Person("Bob", Arrays.asList("C++", "JavaScript"))
+);
+List<String> languages = persons.stream()
+    .map(Person::getLanguages)
+    .flatMap(List::stream)
+    .collect(Collectors.toList());
+// 结果为 ["Java", "Python", "C++", "JavaScript"]
+```
+
+3. 嵌套流扁平化：
+```java
+List<List<List<Integer>>> numbers = Arrays.asList(
+    Arrays.asList(
+        Arrays.asList(1, 2),
+        Arrays.asList(3, 4)
+    ),
+    Arrays.asList(
+        Arrays.asList(5, 6),
+        Arrays.asList(7, 8)
+    )
+);
+List<Integer> flattened = numbers.stream()
+    .flatMap(List::stream)
+    .flatMap(List::stream)
+    .collect(Collectors.toList());
+// 结果为 [1, 2, 3, 4, 5, 6, 7, 8]
+```
+
+这些示例展示了一些常见的 `flatMap` 方法的用法，它可以将嵌套的流扁平化为单个流，或者将对象中的集合提取为单个流。
+
