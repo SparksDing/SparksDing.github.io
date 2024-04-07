@@ -61,6 +61,16 @@ export default sidebar([
         ],
       },
       {
+        text: "java-feature",
+        prefix: "java-feature/",
+        // icon: "java",
+        collapsible: true,
+        
+        children: [
+          "stream-api.md",
+        ],
+      },
+      {
         text: "spring",
         prefix: "spring/",
         // icon: "java",
