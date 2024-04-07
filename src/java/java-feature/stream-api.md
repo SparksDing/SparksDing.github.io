@@ -14,7 +14,7 @@ tag:
 只保留满足特定条件的元素
 
 示例
-```
+```java
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
