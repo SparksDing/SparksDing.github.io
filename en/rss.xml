@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="utf-8"?><?xml-stylesheet type="text/xsl" href="https://sparksding.github.io/en/rss.xsl"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <atom:link href="https://sparksding.github.io/en/rss.xml" rel="self" type="application/rss+xml"/>
+    <title>SparksDing Notes</title>
+    <link>https://sparksding.github.io/en/</link>
+    <description>Notes on backend engineering, distributed systems, and practice.</description>
+    <language>en-US</language>
+    <pubDate>Mon, 19 Oct 2026 07:02:20 GMT</pubDate>
+    <lastBuildDate>Mon, 19 Oct 2026 07:02:20 GMT</lastBuildDate>
+    <generator>vuepress-plugin-feed2</generator>
+    <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
+    <category>Engineering</category>
+    <item>
+      <title>Engineering</title>
+      <link>https://sparksding.github.io/en/architecture/</link>
+      <guid>https://sparksding.github.io/en/architecture/</guid>
+      <source url="https://sparksding.github.io/en/rss.xml">Engineering</source>
+      <description>Engineering Design trade-offs, pitfalls, and implementation details from real projects. Let Two DeepSeek Harness Instances Talk Across Machines: dsh-peer&amp;apos;s Backend and Activity Dashboard</description>
+      <pubDate>Mon, 19 Oct 2026 06:21:46 GMT</pubDate>
+      <content:encoded><![CDATA[<h1> Engineering</h1>
+<p>Design trade-offs, pitfalls, and implementation details from real projects.</p>
+<ul>
+<li><a href="/en/architecture/dsh-peer.html" target="blank">Let Two DeepSeek Harness Instances Talk Across Machines: dsh-peer's Backend and Activity Dashboard</a></li>
+</ul>
+]]></content:encoded>
+    </item>
+    <item>
+      <title>Let Two DeepSeek Harness Instances Talk Across Machines: dsh-peer&amp;apos;s Backend and Activity Dashboard</title>
+      <link>https://sparksding.github.io/en/architecture/dsh-peer.html</link>
+      <guid>https://sparksding.github.io/en/architecture/dsh-peer.html</guid>
+      <source url="https://sparksding.github.io/en/rss.xml">Let Two DeepSeek Harness Instances Talk Across Machines: dsh-peer&amp;apos;s Backend and Activity Dashboard</source>
+      <description>I recently built something small but useful: a channel that lets a DeepSeek Harness (dsh) instance on Linux and another on Windows talk to each other — not &amp;quot;SSH in and run a command&amp;quot;, but two agents delegating turns and messaging each other. The result is a plugin called dsh-peer, plus an activity dashboard that shows the remote agent&amp;apos;s thinking as it happens. Code: SparksDing/dsh-peer. This post covers the design, the interaction flow, and why the dashboard lives inside the bridge. 中文版: 让两个 DeepSeek Harness 跨机器对话</description>
+      <category>Engineering</category>
+      <pubDate>Mon, 19 Oct 2026 00:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[<p>I recently built something small but useful: a channel that lets a DeepSeek Harness (dsh) instance on Linux and another on Windows talk to each other — not "SSH in and run a command", but <strong>two agents delegating turns and messaging each other</strong>. The result is a plugin called <code>dsh-peer</code>, plus an activity dashboard that shows the remote agent's thinking as it happens.</p>
+<p>Code: <a href="https://github.com/SparksDing/dsh-peer" target="_blank" rel="noopener noreferrer">SparksDing/dsh-peer</a>. This post covers the design, the interaction flow, and why the dashboard lives inside the bridge.</p>
+<blockquote>
+<p>中文版: <a href="/architecture/dsh-peer.html" target="blank">让两个 DeepSeek Harness 跨机器对话</a></p>
+</blockquote>
+<!-- more -->
+<h2> 1. Background and constraints</h2>
+<p>dsh ships an SDK protocol over stdio: a parent process spawns <code>dsh --profile sdk</code> and speaks JSON-RPC over stdin/stdout. There is no cross-machine channel.</p>
+<p>Three real constraints shaped the design:</p>
+<ol>
+<li><strong>Windows sits behind NAT.</strong> It can only make outbound connections.</li>
+<li><strong>The Linux side's inbound ports are blocked</strong> by the cloud security group; only HTTP-ish ports such as 80/3080 are reachable.</li>
+<li>The thing being driven is not a bare tool process but a <strong>complete runtime</strong>: its own model route, tool set, session persistence, and filesystem.</li>
+</ol>
+<p>So the goal was explicit: reuse dsh's SDK protocol and add a "cross-machine + symmetric" layer without touching the core.</p>
+<h2> 2. Architecture: connection direction and service direction are opposite</h2>
+<p>This is the easiest part to get confused about, and the most important:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Establishes the connection</th>
+<th>Sends harness requests</th>
+<th>Responds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>hub (public side)</td>
+<td>listens</td>
+<td>yes (<code>session/prompt</code>)</td>
+<td>only <code>peer/reply</code></td>
+</tr>
+<tr>
+<td>link (private side)</td>
+<td>dials</td>
+<td>no</td>
+<td>serves harness methods</td>
+</tr>
+</tbody>
+</table>
+<p>NAT only allows the private machine to dial out, so Windows must be the "connection client" — while it is simultaneously the "capability server", exposing its local agent to the hub.</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>The stack is straightforward:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h2> 3. Protocol: reuse the SDK dialect</h2>
+<h3> 3.1 Frames and transport</h3>
+<p>Every frame is one line of JSON-RPC 2.0: <code>method</code> + <code>id</code> is a request, <code>id</code> alone is a response, <code>method</code> alone is a notification. This matches <code>@deepseek-ai/dsh-sdk-protocol</code>, so both ends already understand the harness methods:</p>
+<ul>
+<li><code>initialize</code>: cwd, provider, model</li>
+<li><code>session/prompt</code>: enqueue one user message</li>
+<li><code>session/wait</code>, <code>session/working-directory/*</code></li>
+<li>notifications: <code>session.event</code>, <code>session.status</code></li>
+</ul>
+<p>Only four methods are custom: <code>peer/hello</code>, <code>peer/ping</code>, <code>peer/info</code>, <code>peer/reply</code>, plus <code>peer/ensure-session</code> for compatibility.</p>
+<p>Transport is pluggable because the same JSON-RPC only needs a <code>Duplex</code>:</p>
+<div class="language-javascript line-numbers-mode" data-ext="js"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3> 3.2 Handshake</h3>
+<p>The first request from a link is:</p>
+<div class="language-json line-numbers-mode" data-ext="json"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>The hub checks the protocol version and compares the token in constant time, refusing anything that does not match. After that:</p>
+<ul>
+<li>an application-level <code>peer/ping</code> every 25 seconds, dropping the connection after two consecutive misses;</li>
+<li>on disconnect, the link reconnects with exponential backoff from 1s up to 30s.</li>
+</ul>
+<h3> 3.3 One <code>peer_ask</code>, end to end</h3>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>One subtle implementation detail: <strong>the hub does not use <code>session/wait</code> to detect the end of a turn</strong>. The 0.2.0 SDK server only implements <code>initialize</code>, <code>session/prompt</code>, and <code>shutdown</code>. Instead, the hub keeps per-session state on each connection:</p>
+<ul>
+<li><code>receipts</code>: messageIds confirmed by <code>agent/inbox/spliced</code></li>
+<li><code>idleCount</code>: how many times <code>session.status</code> became idle</li>
+<li><code>lastAssistant</code>: text of the last assistant message</li>
+</ul>
+<p>The wait condition is "idleCount increased since before the prompt", not "wait for an idle notification" — the latter loses the event when the turn finishes before the wait starts.</p>
+<h3> 3.4 Session identity and continuity</h3>
+<p>Session ids are <code>peer-&lt;link&gt;-&lt;topic&gt;</code>:</p>
+<ul>
+<li>reusing a <code>session</code> name continues the same conversation; <code>fresh: true</code> starts a new one;</li>
+<li>after a reconnect the hub re-runs <code>initialize</code>, then <code>peer/ensure-session</code> for existing conversations;</li>
+<li>the link first tries <code>session/resume</code> to load persisted history; if that fails (first use), the next prompt creates it.</li>
+</ul>
+<p>Conversations therefore survive restarts of either side.</p>
+<h3> 3.5 Event filtering</h3>
+<p><code>HarnessSdkJsonRpcServer</code> broadcasts <code>session.event</code> for <strong>every session in the runtime</strong>. For a peer channel that is both wasteful and a privacy leak, so the link wraps the transport:</p>
+<div class="language-javascript line-numbers-mode" data-ext="js"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><code>owned</code> is populated when <code>session/prompt</code> or <code>session/resume</code> arrives, so only sessions created by this peer connection are forwarded.</p>
+<h2> 4. Backend details worth noting</h2>
+<h3> 4.1 Tools come from agent presets, not the global plane</h3>
+<p>Mounting the link in the <code>web</code> profile hits a snag: peer sessions only see globally registered tools (<code>peer_reply</code>, <code>peer_status</code>) — no <code>bash</code>, <code>read</code>, or <code>write</code>, because the Web profile moves every model-facing tool row into an agent preset.</p>
+<p>The fix is to subclass <code>HarnessSdkJsonRpcServer</code> and override <code>createSession</code> so the preset is mounted in the pre-publication <code>setup</code> hook:</p>
+<div class="language-javascript line-numbers-mode" data-ext="js"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><code>setup</code> runs before the agent is published, so the preset's tools exist when the first prompt is assembled.</p>
+<h3> 4.2 Older versions have no <code>session/resume</code></h3>
+<p>0.2.0's SDK server exposes only three methods, and <code>agents.create</code> on an existing session id fails with <code>session "..." already exists</code>. The compatibility path catches that and falls back to <code>agents.resume</code>:</p>
+<div class="language-javascript line-numbers-mode" data-ext="js"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3> 4.3 When only an HTTP port is reachable: WebSocket plus a bridge</h3>
+<p>The public side's 3099 is blocked by the security group, but 3080 works (nginx). So one path was added:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p>The bridge is tiny: it accepts the WebSocket upgrade and pipes each connection to the hub's TCP port. The hub stays unchanged and keeps listening on raw TCP.</p>
+<p>nginx needs one exact-match location that does not disturb the dsh GUI:</p>
+<div class="language-nginx line-numbers-mode" data-ext="nginx"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3> 4.4 Binary artifacts get a separate upload endpoint</h3>
+<p>The protocol carries JSON text only. Pushing screenshots or preview QR codes through JSON-RPC (base64) is expensive and fragile, so there is a small token-checked upload endpoint:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p>On the remote side, <code>Invoke-WebRequest -Method Put -InFile</code> is enough.</p>
+<h2> 5. Frontend: the activity dashboard</h2>
+<h3> 5.1 Why it lives in the bridge</h3>
+<p>The requirement was to see the remote agent's <strong>thinking</strong> and details: user messages, reasoning, assistant text, tool calls and results, turn boundaries, status changes.</p>
+<p>The obvious approach — a dsh client UI plugin — has two problems:</p>
+<ol>
+<li>Its data plane needs typert Remote descriptors, which are <strong>generated at build time</strong>; out-of-tree plugins have a hard time wiring that up.</li>
+<li>More importantly, adding a read-only panel should not require restarting the hub that is already running.</li>
+</ol>
+<p>The WebSocket bridge happens to sit between the link and the hub and <strong>sees every JSON-RPC frame</strong>. So the dashboard was implemented there: the bridge parses frames on the side, feeds an in-memory store, and serves a minimal HTTP page.</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>Neither the hub nor the link changed.</p>
+<h3> 5.2 Event model</h3>
+<p>dsh session events are a discriminated union. The dashboard keeps the ones worth showing:</p>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Display</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>user/message</code></td>
+<td>user or injected message text</td>
+</tr>
+<tr>
+<td><code>assistant/message</code></td>
+<td>split into <code>reasoning</code> and <code>text</code> blocks</td>
+</tr>
+<tr>
+<td><code>tool/call</code></td>
+<td>tool name + argument JSON</td>
+</tr>
+<tr>
+<td><code>tool/result</code></td>
+<td>result text, red when <code>isError</code></td>
+</tr>
+<tr>
+<td><code>turn/start</code> / <code>turn/end</code></td>
+<td>turn boundaries and end reason</td>
+</tr>
+<tr>
+<td><code>session.status</code></td>
+<td>running / idle</td>
+</tr>
+</tbody>
+</table>
+<p>Each event is flattened into a ring buffer:</p>
+<div class="language-javascript line-numbers-mode" data-ext="js"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p><code>seq</code> is globally monotonic, which makes incremental fetching trivial.</p>
+<h3> 5.3 Incremental polling</h3>
+<p>No push channel — just polling every 900 ms with a <code>since</code> cursor:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>Only events with <code>seq &gt; since</code> come back, so responses stay small. The server keeps the last 400 events per session and 4000 overall, dropping the oldest from the least recently active session.</p>
+<p>Polling instead of SSE is a pragmatic choice: a dashboard is usually watched briefly, and failure recovery (refresh, reconnect) costs almost no code.</p>
+<h3> 5.4 Rendering</h3>
+<p>The page is <strong>one self-contained HTML string</strong> with no external assets and no frontend build step — a function returns it directly:</p>
+<div class="language-javascript line-numbers-mode" data-ext="js"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>Rendering groups by session; new events are appended to the end. The header shows a peer status dot (green when any session is running), and an optional "follow" checkbox keeps the view scrolled to the bottom.</p>
+<p>The result is a chronological stream: purple for reasoning, yellow for tool calls, green for results, red for failures, gray for turn boundaries.</p>
+<h3> 5.5 Security</h3>
+<p>The dashboard runs on the public 3080, so:</p>
+<ul>
+<li>both the page and the JSON endpoint require a <code>token</code> query parameter;</li>
+<li>the page embeds that token into its fetches;</li>
+<li>the bridge is read-only and exposes no write endpoint.</li>
+</ul>
+<h2> 6. Real-world validation</h2>
+<p>This was not a paper design; it ran end to end on real machines:</p>
+<ol>
+<li>Windows runs <code>dsh --profile sdk</code> as a link and connects to the Linux hub over <code>ws://…/dsh-peer</code>;</li>
+<li>on Linux, <code>peer_ask(peer="HP", prompt="check disk")</code> makes the Windows agent run pwsh and return the result;</li>
+<li>the agent then drives WeChat DevTools through <code>miniprogram-automator</code>, reads page elements, takes screenshots, and uploads the preview QR code and screenshots back through the upload endpoint;</li>
+<li>the dashboard shows its reasoning, tool calls, and results step by step.</li>
+</ol>
+<p>Pitfalls worth recording:</p>
+<ul>
+<li><strong>Web profile tools live in presets</strong>, and only peer tools are global;</li>
+<li><strong>0.2.0 has no <code>session/resume</code></strong>, so reconnects must fall back to <code>agents.resume</code>;</li>
+<li><strong>HMR only replaces plugin files inside the profile directory</strong>; new files outside it are not hot-loaded — which is why the bridge became a standalone process;</li>
+<li><strong>The Windows sandbox requires temp to be outside the workspace</strong>; when the workspace is the home directory, <code>%LOCALAPPDATA%\Temp</code> is inside it and startup is refused;</li>
+<li><strong>The WeChat DevTools CLI writes to <code>%LOCALAPPDATA%</code></strong>, so a workspace outside the home directory blocks it; its service port must be enabled manually, and preview requires a real AppID (<code>touristappid</code> fails with "AppID does not exist").</li>
+</ul>
+<h2> 7. Limitations and next steps</h2>
+<ul>
+<li>The link agent is event-driven: it runs only when prompted. It can interject with <code>peer_reply</code> during a turn, but cannot start one on its own.</li>
+<li>The dashboard only covers links that go through the bridge; a direct TCP link would need the same recording logic inside the hub.</li>
+<li>With multiple users or machines, events would need subscriptions and per-peer permissions (today the token is all-or-nothing).</li>
+<li>Embedding the panel inside the dsh Web GUI would need a client plugin plus typert descriptors — significantly more work, so it stays a standalone page for now.</li>
+</ul>
+<h2> 8. Code</h2>
+<ul>
+<li>Repository: <a href="https://github.com/SparksDing/dsh-peer" target="_blank" rel="noopener noreferrer">SparksDing/dsh-peer</a></li>
+<li>Backend: <code>lib/protocol.js</code>, <code>lib/hub.js</code>, <code>lib/link.js</code>, <code>lib/link-server.js</code></li>
+<li>Transport: <code>lib/transport.js</code>, <code>lib/ws.js</code></li>
+<li>Dashboard: <code>lib/activity.js</code> (event model + HTML), <code>bin/peer-ws-bridge.mjs</code> (side parsing + HTTP endpoints)</li>
+<li>Tests: <code>node test/hub.test.mjs</code>, <code>node test/tools.test.mjs</code> (no model and no dsh required)</li>
+</ul>
+<p>If the approach is useful to you, take it and adapt it. Issues about better observability are welcome — especially "how to observe a process without modifying it".</p>
+]]></content:encoded>
+    </item>
+  </channel>
+</rss>

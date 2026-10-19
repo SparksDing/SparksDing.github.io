@@ -1,7 +1,3 @@
-User-agent: *
-Disallow:
-
-Sitemap: https://sparksding.github.io/sitemap.xml
 
 User-agent:*
 Disallow:
