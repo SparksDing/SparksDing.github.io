@@ -3,10 +3,11 @@
   <id>https://sparksding.github.io/</id>
   <title>还不知道叫什么名字</title>
   <subtitle>还不知道叫什么名字的博客</subtitle>
-  <updated>2026-10-19T07:02:20.257Z</updated>
+  <updated>2026-10-19T08:52:14.130Z</updated>
   <generator>vuepress-plugin-feed2</generator>
   <link rel="self" href="https://sparksding.github.io/atom.xml"/>
   <link rel="alternate" href="https://sparksding.github.io/"/>
+  <category term="DeepSeek Harness"/>
   <category term="工程实践"/>
   <category term="java"/>
   <category term="spring"/>
@@ -21,20 +22,1167 @@
   <category term="webtools"/>
   <category term="前端"/>
   <entry>
+    <title type="text">从 dsh web 到一棵插件树：DSH 启动链路</title>
+    <id>https://sparksding.github.io/deepseek-harness/01-boot.html</id>
+    <link href="https://sparksding.github.io/deepseek-harness/01-boot.html"/>
+    <updated>2026-10-19T08:50:28.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。行号以该 commit 为准。</p>
+</blockquote>]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。行号以该 commit 为准。</p>
+</blockquote>
+<p>执行 <code>dsh web</code> 时，终端里只会打印一行访问地址。但在这一行之前，进程已经完成了参数解析、profile 定位、bundle 拼装、patch 覆盖、Cordis Loader 安装、几十个插件挂载，以及一次启动审计。</p>
+<p>这篇沿着 <code>apps/cli</code> 和 <code>packages/boot</code> 把这条链路走一遍。理解它之后，你才能解释三个常见问题：为什么某个插件没生效、为什么改 <code>cordis.patch.yml</code> 能覆盖默认行为、为什么 desktop 和 SDK 能复用同一套 agent 运行时。</p>
+<h2> 1. 入口只做分发</h2>
+<p><code>dsh</code> 的 bin 入口很短。<code>runCli()</code> 先解析 <code>process.argv</code>，然后按 <code>mode</code> 分发：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/apps/cli/src/bin.ts#L26-L48" target="_blank" rel="noopener noreferrer"><code>bin.ts#L26-L48</code></a>。</p>
+<p>这里有两点值得注意：</p>
+<ul>
+<li><strong>动态 import。</strong> 只有真的要启动 profile 时才加载 <code>profile-boot.ts</code>。<code>dsh --help</code>、<code>dsh plugin</code> 这类命令不必为启动链路付出加载成本。</li>
+<li><strong><code>profile</code> 是默认的应用形态。</strong> <code>web</code>、<code>headless</code>、<code>sdk</code>、<code>acp</code> 都不是独立的可执行文件，而是不同 profile 的名字。<code>apps/desktop</code> 也走同一条路，只是换了一个由应用自己管理的 profile 目录。</li>
+</ul>
+<h2> 2. profile 是“组合”，不是“配置”</h2>
+<p>很多人第一次看到 <code>$DSH_HOME/profiles/web</code> 会以为它是一个大配置文件。实际上它更像一个<strong>依赖清单 + 覆盖层</strong>。</p>
+<p><code>Profile</code> 的结构是：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/boot/app-boot/src/profile.ts#L89-L100" target="_blank" rel="noopener noreferrer"><code>profile.ts#L89-L100</code></a>。</p>
+<p><code>composeProfile()</code> 负责准备这些层：加载 profile、计算运行时解析、读取命令行 overlay；真正的合成发生在 <code>boot()</code> 挂载根配置时：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/apps/cli/src/profile-boot.ts#L224-L236" target="_blank" rel="noopener noreferrer"><code>profile-boot.ts#L224-L236</code></a>。</p>
+<p>层序在注释里写得很清楚（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/apps/cli/src/profile-boot.ts#L211-L217" target="_blank" rel="noopener noreferrer"><code>profile-boot.ts#L211-L217</code></a>）：</p>
+<ol>
+<li><code>dsh.profile.bundles</code> 里列出的 bundle，按顺序；</li>
+<li>profile 自己的 <code>cordis.patch.yml</code>；</li>
+<li><code>$DSH_HOME/cordis.patch.yml</code>（机器级偏好，优先级高于 profile 级）；</li>
+<li>命令行 <code>--patch</code> 覆盖文件，按 argv 顺序；</li>
+<li>telemetry 开关。</li>
+</ol>
+<p>后应用的层覆盖前面的层。<strong>同一个插件行按 <code>id</code> 匹配，替换的是整个 <code>config</code>，不是深合并。</strong> 这意味着覆盖一个配置时，要把想保留的字段重新写全。</p>
+<h3> bundle 长什么样</h3>
+<p>一个 bundle 本质上是一份可安装的 patch 文件。<code>packages/bundle/base/package.json</code> 里声明：</p>
+<div class="language-json line-numbers-mode" data-ext="json"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>而 <code>base/cordis.patch.yml</code> 的第一段就是一次 <code>insert</code>（下面只节选了几行）：</p>
+<div class="language-yaml line-numbers-mode" data-ext="yml"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/bundle/base/cordis.patch.yml#L15-L45" target="_blank" rel="noopener noreferrer"><code>cordis.patch.yml#L15-L45</code></a>。<code>web</code> profile 先叠 <code>base</code>，再叠 <code>web-app</code>。<code>web-app</code> 的 patch 会按 id 改写 base 里的行，例如给 <code>tools</code> 加上 <code>mode</code>、给 <code>system-prompt</code> 加上 persona，并插入 <code>webserver</code>、<code>web-runtime</code> 这些只有浏览器形态才需要的行。</p>
+<p>所以，“web 版 dsh”不是一个写死的应用，而是 <strong>base 这层通用能力 + web-app 这层浏览器外壳 + 用户覆盖</strong> 的合成结果。</p>
+<h2> 3. <code>boot()</code> 只做五件事</h2>
+<p><code>packages/boot/app-boot</code> 的 <code>boot()</code> 是整条链路的核心。删掉错误处理和日志后，它的骨架是：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>对应 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/boot/app-boot/src/index.ts#L1200-L1260" target="_blank" rel="noopener noreferrer"><code>index.ts#L1200-L1260</code></a>。</p>
+<p>逐步看：</p>
+<ol>
+<li><strong>创建根 Context。</strong> Cordis 的所有 service、event、effect 都挂在这个 Context 的 fiber 树上。</li>
+<li><strong>安装 Loader。</strong> Loader 负责读 <code>cordis.yml</code> / patch、解析模块、按服务依赖激活插件。</li>
+<li><strong><code>prepare</code> 注入启动事实。</strong> <code>profile-boot</code> 在这里 <code>provide('profileContext', ...)</code> 和 <code>provideCmdline(...)</code>。很多 base 行用 <code>!!js "ctx.get('profileContext')"</code> 判断自己是否该启用，依赖的就是这个时机。</li>
+<li><strong>挂载根配置。</strong> <code>mountRootInclude</code> 把 profile 的 patch 层应用到空 entry list 上，得到最终的插件行，再交给 Loader。</li>
+<li><strong>审计激活结果。</strong> <code>auditStartupEntries</code> 检查必需插件是否真的 ACTIVE；失败会带上插件 id 和原始错误，而不是静默跳过。</li>
+</ol>
+<p><code>boot()</code> 的 catch 分支也值得一读：它先把根 fiber 整个 dispose，再根据失败发生在 <code>prepare</code> 之前还是之后，给出 <code>host preparation failed</code> 或 <code>plugin tree failed to load</code> 两种标签（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/boot/app-boot/src/index.ts#L1246-L1260" target="_blank" rel="noopener noreferrer"><code>index.ts#L1246-L1260</code></a>）。这是 DSH 的一条设计原则：<strong>配置错误要在最早能确定的地方大声失败</strong>。</p>
+<h2> 4. 一条完整的启动链路</h2>
+<p>把上面的片段接起来：</p>
+<p><code>runProfile()</code> 还做了几件容易被忽略的事（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/apps/cli/src/profile-boot.ts#L271-L346" target="_blank" rel="noopener noreferrer"><code>profile-boot.ts#L271-L346</code></a>）：</p>
+<ul>
+<li>在第一个插件挂载前安装代理设置。Node 的 <code>fetch</code> 不会自动读代理环境变量，DSH 从启动快照里解析，保证 <code>.env</code> 里的代理也生效。</li>
+<li>把 <code>SIGTERM</code> / <code>SIGINT</code> 接到 <code>shutdown</code>，并且在 <strong>startup 窗口内</strong>就接管，而不是等 <code>boot()</code> 返回后才接管。</li>
+<li>用 <code>appReady</code> 标记“应用真的起来了”。Web 网关会等这个信号之后才注册 WebSocket 路由，避免重启期间接到半初始化的连接。</li>
+</ul>
+<p>这些细节说明：DSH 把“启动”当成一个需要被观测和中断的生命周期，而不是一串同步初始化语句。</p>
+<h2> 5. 为什么用 patch，而不是 if/else</h2>
+<p>如果只是想支持 web 和 headless，最直接的做法是写两个入口、共享一个库。DSH 选择了更重的一条路：<strong>所有形态共享一个 launcher，用 patch 层描述差异</strong>。</p>
+<p>收益是：</p>
+<ul>
+<li><strong>可替换性一致。</strong> 用户覆盖一行配置的方式，和官方 bundle 覆盖另一行配置的方式完全相同；不存在“只有核心能改”的配置。</li>
+<li><strong>HMR 有统一对象。</strong> <code>dsh-hmr</code> 监听的就是 profile manifest 和 patch 文件，重载时重新走同一条合成逻辑。</li>
+<li><strong>新形态不需要新 bin。</strong> 加一个 <code>acp</code> 或 <code>sdk</code> profile，主要是多一层 bundle patch；它们和 web 共用 <code>dsh</code> 这个入口。</li>
+<li><strong>可审计。</strong> <code>dsh --profile web --dump-config</code> 打印的就是最终会被挂载的 entry list，并且用注释标出每一行来自哪个文件、被哪一层改过。</li>
+</ul>
+<p>代价也很明显：<strong>间接层很多</strong>。看代码时如果只打开某个 <code>index.ts</code>，很容易不知道这个插件到底有没有被挂载。所以读 DSH 源码时，我养成了一个习惯：先 <code>--dump-config</code> 看它在这台机器上的真实形态，再回去读源码。</p>
+<h2> 6. 动手验证</h2>
+<div class="language-bash line-numbers-mode" data-ext="sh"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>如果想验证 patch 的覆盖规则，可以写一个小 overlay：</p>
+<div class="language-yaml line-numbers-mode" data-ext="yml"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><div class="language-bash line-numbers-mode" data-ext="sh"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p>你应该能看到对应行的 <code>disabled</code> 变为 <code>true</code>，而其他行保持不变。注意：<strong>替换 <code>config</code> 时是整个替换</strong>，所以覆盖一个带多个字段的插件时，最好从 dump 里把那一段复制出来再改。</p>
+<h2> 小结</h2>
+<ul>
+<li><code>dsh web</code> 的入口只做参数分发，真正的应用形态由 profile 决定。</li>
+<li>profile = 有序 bundle 层 + profile patch + home patch + <code>--patch</code>，后写获胜。</li>
+<li><code>boot()</code> 的职责是创建 Context、装 Loader、注入启动事实、应用补丁、审计激活。</li>
+<li>同一套机制支撑 web、headless、SDK、ACP 和 desktop，这是“没有特权核心”在启动层的体现。</li>
+</ul>
+<p>下一篇进入 Cordis 本身：为什么 <code>ctx.tools.register()</code> 返回的 disposer 能让插件卸载时自动清理，以及 <code>agent/pre-step</code> 这种 waterfall 事件到底怎样改变主循环的行为。</p>
+]]></content>
+    <category term="DeepSeek Harness"/>
+    <published>2026-10-19T00:00:00.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">Cordis：DSH 为什么没有“核心”</title>
+    <id>https://sparksding.github.io/deepseek-harness/02-cordis.html</id>
+    <link href="https://sparksding.github.io/deepseek-harness/02-cordis.html"/>
+    <updated>2026-10-19T08:50:28.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。</p>
+</blockquote>]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。</p>
+</blockquote>
+<p>DSH 的架构文档第一句话就是：<strong>Everything is a plugin</strong>。模型 adapter、工具注册表、会话日志、系统提示词，甚至 agent 主循环，都是插件。</p>
+<p>这句话听起来像宣传语，但它有非常具体的工程含义。读完 Cordis 的设计，我最大的感受是：DSH 并不是“写了一个可扩展的 agent”，而是<strong>把 agent 本身变成了插件组合的结果</strong>。没有哪段代码天然拥有特权，扩展点也不是事后加的钩子。</p>
+<p>这篇讲清楚 Cordis 的四个核心概念：Context、Service、Event、Effect。它们解释了 DSH 里大量看起来“反直觉”的写法。</p>
+<h2> 1. 插件不是一个函数，是“向 Context 注册能力”</h2>
+<p>Cordis 支持三种插件形态：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见官方教程 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/docs/cordis-tutorial/01-first-plugin.md" target="_blank" rel="noopener noreferrer"><code>01-first-plugin.md</code></a>。</p>
+<p>区别在于“贡献什么”：</p>
+<ul>
+<li>函数/对象插件<strong>做事情</strong>：注册事件监听、注册工具、挂子插件。</li>
+<li>Service 子类<strong>提供能力</strong>：它把自己注册到 <code>ctx.&lt;name&gt;</code> 上，其他插件通过这个 key 找到它。</li>
+</ul>
+<p>关键在于：插件拿到的 <code>ctx</code> 不是全局单例，而是<strong>当前插件自己的上下文</strong>。通过它注册的东西，默认随这个插件的 fiber 一起出现、一起消失。</p>
+<h2> 2. Context 是服务仓库，<code>inject</code> 是依赖声明</h2>
+<p>DSH 的代码里几乎看不到 <code>import { ToolRuntime } from ...</code> 然后 <code>new</code> 一个实例。工具插件只写 <code>ctx.tools.register(...)</code>，它不关心 <code>ctx.tools</code> 是谁实现的。</p>
+<p><code>Service</code> 的构造函数做了这件事：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/vendor/cordis/src/service.ts#L42-L59" target="_blank" rel="noopener noreferrer"><code>service.ts#L42-L59</code></a>。<code>provide()</code> 不是普通赋值，它登记的是“这个服务由当前 fiber 提供”，因此：</p>
+<ul>
+<li>插件卸载时，服务自动撤销；</li>
+<li>服务可以按 scope 隔离或覆盖（DSH 的 agent preset 就用 <code>isolate</code> realm 给单个 agent 换一套能力）；</li>
+<li>消费者拿到的是<strong>接口</strong>，不是实现。</li>
+</ul>
+<p>服务之间有依赖怎么办？用 <code>inject</code> 声明，而不是靠加载顺序：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/src/index.ts#L808-L812" target="_blank" rel="noopener noreferrer"><code>index.ts#L808-L812</code></a>。</p>
+<p><code>inject</code> 让 Cordis 把插件放进 <code>PENDING</code> 状态，直到 <code>systemPrompt</code> 出现才真正 <code>apply</code>。这解决了一个非常现实的问题：<strong>配置文件里行的顺序不代表加载顺序</strong>。你可以把 <code>dsh-tools</code> 写在 <code>dsh-system-prompt</code> 前面，只要依赖声明正确，Cordis 会等到服务就绪。</p>
+<p>这带来一个调试经验：插件“没反应”时，先看它是不是卡在 PENDING，而不是先怀疑配置没生效。</p>
+<h2> 3. 事件有五种调度方式，waterfall 是拦截器</h2>
+<p>Cordis 的事件不是简单的 pub/sub。事件在声明时就带一种调度模式（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/vendor/cordis/src/events.ts#L24-L32" target="_blank" rel="noopener noreferrer"><code>events.ts#L24-L32</code></a>）：</p>
+<table>
+<thead>
+<tr>
+<th>模式</th>
+<th>是否等待</th>
+<th>顺序</th>
+<th>返回值</th>
+<th>典型用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>emit</code></td>
+<td>否</td>
+<td>注册顺序</td>
+<td>无</td>
+<td>纯通知</td>
+</tr>
+<tr>
+<td><code>waterfall</code></td>
+<td>否</td>
+<td>注册顺序，包裹 <code>next</code></td>
+<td>有</td>
+<td>中间件、拦截、改写</td>
+</tr>
+<tr>
+<td><code>parallel</code></td>
+<td>是</td>
+<td>并行</td>
+<td>无</td>
+<td>多个独立观察者</td>
+</tr>
+<tr>
+<td><code>serial</code></td>
+<td>是</td>
+<td>注册顺序，可短路</td>
+<td>有</td>
+<td>终止检查</td>
+</tr>
+<tr>
+<td><code>bail</code></td>
+<td>否</td>
+<td>注册顺序，遇到非空即停</td>
+<td>有</td>
+<td>快速决策</td>
+</tr>
+</tbody>
+</table>
+<p>DSH 里最重要的扩展点是 waterfall。它的语义是 <strong>around-middleware</strong>：监听器收到 <code>(...args, next)</code>，调用 <code>next()</code> 表示“把控制权交给下一个监听器”，不调用就直接短路。</p>
+<p>一个真实例子是 <code>time-context</code> 插件，它在每个 step 前把当前时间注入用户消息：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/context/time-context/src/index.ts#L185-L217" target="_blank" rel="noopener noreferrer"><code>time-context/src/index.ts#L185-L217</code></a>。</p>
+<p>这个写法的精妙之处在于：它既可以让下游先决定（<code>await next()</code>），又可以在下游结果上追加内容。主循环完全不知道“时间上下文”这个插件的存在，但每个请求都会带上它。</p>
+<p>DSH 的约定是：<strong>waterfall 监听器必须调用 <code>next()</code> 才能真正委托</strong>。只观察、不委托的监听器会让整条链断掉，这是写插件时最容易犯的错误之一。</p>
+<h2> 4. 注册即 effect，卸载自动回滚</h2>
+<p>Cordis 的 fiber 有明确的状态机：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/docs/cordis-tutorial/02-lifecycle-and-effects.md" target="_blank" rel="noopener noreferrer"><code>02-lifecycle-and-effects.md</code></a>。</p>
+<p><code>ctx.effect()</code> 接收一个函数，函数体在加载时执行，返回的 disposer 在卸载时执行：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>实现见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/vendor/cordis/src/fiber.ts#L415-L420" target="_blank" rel="noopener noreferrer"><code>fiber.ts#L415-L420</code></a>。</p>
+<p>更重要的是，<strong>框架自带的注册 API 本身就是 effect</strong>：</p>
+<ul>
+<li><code>ctx.on(event, listener)</code> 注册的监听器随 fiber 卸载；</li>
+<li><code>ctx.plugin(child)</code> 挂载的子插件随父插件卸载；</li>
+<li><code>ctx.tools.register(tool)</code> 返回的 disposer 也挂在调用方 fiber 上。</li>
+</ul>
+<p>看 <code>ToolRuntime.register()</code> 的最后一行：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/src/index.ts#L1091-L1095" target="_blank" rel="noopener noreferrer"><code>tools/src/index.ts#L1091-L1095</code></a>。</p>
+<p>这就是为什么插件作者不需要手写 <code>unregister</code>，也不需要担心 HMR 后旧工具残留：注册和撤销是同一个 effect 的两端。</p>
+<h2> 5. 再进一步：连“agent 循环”也是服务</h2>
+<p><code>ctx.agents</code> 是一个服务，<code>ctx.agentLoop</code> 也是一个服务。<code>dsh-agent</code> 包定义 <code>Agent</code> 接口和事件，<code>dsh-agent-loop</code> 实现默认驱动。</p>
+<p>这意味着：</p>
+<ul>
+<li>你可以只挂 <code>dsh-agent</code>，换一个自己的 loop 实现；</li>
+<li>也可以在 agent 的 scope 里覆盖 <code>ctx.tools</code>，让某个 agent 看到不同的工具集；</li>
+<li><code>agent/pre-step</code>、<code>agent/request</code>、<code>agent/turn-stopping</code> 这些事件不属于某个具体实现，而属于 <code>agent/*</code> 这个域。</li>
+</ul>
+<p>DSH 的架构文档把事件分成三类（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/docs/architecture.md#L67-L77" target="_blank" rel="noopener noreferrer"><code>architecture.md#L67-L77</code></a>）：</p>
+<ul>
+<li><strong>Session events</strong>：持久事实，进日志，重启可重放；</li>
+<li><strong>Agent events</strong>：当前进程的实时协作面；</li>
+<li><strong>Capability events</strong>：给能力缝挂策略和 adapter，比如 <code>fs/*</code>、<code>tools/*</code>。</li>
+</ul>
+<p>分清这三类，基本就不会把“该落日志的东西”写成“只在内存里发个事件”。</p>
+<h2> 6. 写一个最小插件</h2>
+<p>下面这个插件不实现服务，只在系统提示词里加一段：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>把它放进 profile 的 <code>cordis.patch.yml</code>：</p>
+<div class="language-yaml line-numbers-mode" data-ext="yml"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>PLUGIN 会被 Loader 当作一个 entry 挂载；<code>ctx.systemPrompt.section()</code> 的注册随插件 fiber 生效和撤销。不需要改任何核心代码。</p>
+<h2> 7. 这套设计的代价</h2>
+<p>“一切皆插件”不是免费的：</p>
+<ul>
+<li><strong>阅读成本高。</strong> 一个行为可能由多个插件通过 waterfall 叠加而成，只看一个包很难看清全貌。</li>
+<li><strong>顺序敏感。</strong> 虽然服务依赖由 <code>inject</code> 解决，但 waterfall 监听器的注册顺序仍会影响结果；DSH 用 <code>prepend</code> 和显式的 order 字段管理这一点。</li>
+<li><strong>约束必须显式。</strong> “注册即 effect”要求所有资源都走 <code>ctx.effect()</code> 或框架 API；绕过它直接 <code>setInterval</code>，HMR 后就会泄漏。</li>
+<li><strong>失败要响。</strong> 插件加载失败不能静默跳过，否则组合出来的树是残缺的。DSH 的 startup audit 就是为此存在的。</li>
+</ul>
+<p>但换来的能力也很实在：同一个 runtime 可以被 web、SDK、desktop 复用；换模型、换工具、换沙箱、换 loop 都不需要 fork 主流程。</p>
+<h2> 小结</h2>
+<ul>
+<li>Context 是服务仓库，Service 是能力的提供者，消费者只认 key。</li>
+<li><code>inject</code> 表达依赖，加载顺序由服务可用性决定，不由配置文件行序决定。</li>
+<li>waterfall 是 DSH 最主要的拦截机制，监听器必须调用 <code>next()</code> 才能委托。</li>
+<li>注册是 effect，卸载自动回滚；这是 HMR 和插件热插拔能成立的基础。</li>
+<li>agent 循环本身也是插件，所以“扩展”不需要改核心。</li>
+</ul>
+<p>下一篇进入最核心的调用链：一次用户输入怎样变成一个 <code>turn</code>、若干 <code>step</code>，模型返回的 tool call 又怎样被调度和执行。</p>
+]]></content>
+    <category term="DeepSeek Harness"/>
+    <published>2026-10-19T00:00:00.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">一个 turn 的一生：DSH Agent 主循环</title>
+    <id>https://sparksding.github.io/deepseek-harness/03-agent-loop.html</id>
+    <link href="https://sparksding.github.io/deepseek-harness/03-agent-loop.html"/>
+    <updated>2026-10-19T08:50:28.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。</p>
+</blockquote>]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。</p>
+</blockquote>
+<p>如果只读一个包来理解 DSH，我会选 <code>packages/core/agent-loop</code>。它把“调模型、跑工具、把结果写进历史、再来一轮”这件看起来很朴素的事，拆成了一个个可观测、可取消、可重放的状态。</p>
+<p>这篇按时间顺序走一遍：一条用户消息进来，<code>ReactLoopAgent</code> 怎样开启 turn、认领输入、组装请求、流式接收、调度工具、写日志，最后决定“继续下一步”还是“结束这一轮”。</p>
+<h2> 1. 先把两个词定义清楚</h2>
+<p>DSH 的文档里反复出现 <strong>step</strong> 和 <strong>turn</strong>，它们不是同义词：</p>
+<ul>
+<li><strong>step</strong>：一次模型请求，加上它请求的工具调用。</li>
+<li><strong>turn</strong>：零个或多个 step。它在认领第一条输入之前打开，在“没有任何东西还欠着”时关闭。</li>
+</ul>
+<p>所以一个 turn 可能包含多个 step（模型调工具 → 拿到结果 → 再请求一次），也可能一个 step 都没有（输入被 <code>agent/pre-step</code> 拒绝，或者第一批输入为空）。</p>
+<p>这个区分很重要，因为很多状态是<strong>按 turn 结算</strong>的，而模型请求是<strong>按 step 发生</strong>的。比如 <code>turn/end</code> 要记录这一轮为什么结束，<code>step/end</code> 只表示这一次请求和它的工具都处理完了。</p>
+<h2> 2. 驱动入口：<code>kick()</code> 和 <code>turn()</code></h2>
+<p><code>ReactLoopAgent</code> 是 <code>Agent</code> 接口的默认实现（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent-loop/src/agent.ts#L98" target="_blank" rel="noopener noreferrer"><code>agent.ts#L98</code></a>）。它的主循环非常简单：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent-loop/src/agent.ts#L252-L268" target="_blank" rel="noopener noreferrer"><code>agent.ts#L252-L268</code></a>。</p>
+<p><code>turn()</code> 返回 <code>true</code> 表示还有排队的工作，需要再开一轮；返回 <code>false</code> 表示可以回到 idle。注意 catch 里那句注释：<strong>错误不是在这里被吞掉，而是在这里被收口</strong>。真正的失败已经写进了 <code>turn/end</code> 的 reason，或者通过 <code>agent/*</code> 事件报告给了调用方。</p>
+<h2> 3. 开 turn：先记账，再认领</h2>
+<p><code>turn()</code> 的第一件事是写 <code>turn/start</code>：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent-loop/src/agent.ts#L307" target="_blank" rel="noopener noreferrer"><code>agent.ts#L307</code></a>。</p>
+<p>为什么先写日志再干活？因为 session log 是<strong>唯一事实来源</strong>。如果进程在认领输入之后、请求模型之前崩溃，恢复时至少知道“有一个 turn 开过”，可以补一个 <code>turn/end { kind: 'interrupted' }</code>，而不是留下一个无法解释的悬空状态。</p>
+<p>然后进入循环：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent-loop/src/agent.ts#L315-L365" target="_blank" rel="noopener noreferrer"><code>agent.ts#L315-L365</code></a>。</p>
+<p>这里有几个容易忽略的细节：</p>
+<ul>
+<li><strong>第一个 step 之前认领的是“待处理的 next-step 输入 + 一条排队 prompt”</strong>；后续 step 之间只认领 next-step 输入。这对应两种不同的输入：新的用户消息（开启新 turn）和 steering（在当前 turn 内插话）。</li>
+<li><strong>被拒绝的 pre-step 仍然开过 turn</strong>，只是不产生 step。所以日志里会出现 <code>turn/start</code> 紧跟 <code>turn/end</code>，中间没有 <code>step/start</code>。</li>
+<li><strong><code>step/end</code> 放在 finally 里</strong>。即使 <code>step()</code> 抛错，这一步也要有结束记录，否则恢复逻辑无法判断哪些工具调用已经完成。</li>
+</ul>
+<h2> 4. pre-step：把“输入”变成“可请求的消息”</h2>
+<p><code>preStep()</code> 是整个循环里最像“策略层”的部分（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent-loop/src/agent.ts#L270-L291" target="_blank" rel="noopener noreferrer"><code>agent.ts#L270-L291</code></a>）：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>三件事：</p>
+<ol>
+<li><strong>认领</strong>：从 inbox 里拿走本轮要处理的输入。认领会提交一个持久的 <code>agent/inbox/spliced</code> 事件，并发出实时的 <code>agent/inbox/claimed</code> 通知，所以重放时能还原“哪些消息属于哪个 turn”。</li>
+<li><strong>组装提示词</strong>：<code>ctx.systemPrompt.assemble()</code> 收集所有注册的 section、工具 schema、变量。注意这一步发生在 pre-step <strong>之前</strong>：默认的 enter 决策需要把运行时上下文投影进消息，后续请求也要用这份组装结果；pre-step 监听器拿到的则是已经认领的消息和位置信息。</li>
+<li><strong>跑 waterfall</strong>：<code>agent/pre-step</code> 的监听器可以改写消息、拒绝这一步，或者声明“从这里开始一个新的请求序列”。默认实现会把运行时上下文投影进消息，再一起交出去。</li>
+</ol>
+<p><code>agent/pre-step</code> 是 DSH 里最常用的扩展点之一：时间上下文、<code>AGENTS.md</code> 注入、compaction 的压力检查、session reference 都在这里挂。它们不需要改循环，只需要在下游结果上追加或拒绝。</p>
+<h2> 5. step：准备请求、提交输入、流式接收</h2>
+<p>进入 <code>step()</code> 后，先做两件异步的事（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent-loop/src/agent.ts#L400-L425" target="_blank" rel="noopener noreferrer"><code>agent.ts#L400-L425</code></a>）：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p><code>prepareRequest()</code> 会：</p>
+<ul>
+<li>从 <code>request/header</code> 恢复上一次的 route 和显式参数；</li>
+<li>跑 <code>agent/request</code> waterfall，允许插件改 provider / model / reasoning effort；</li>
+<li>调 <code>ctx.llm.prepareCall()</code>，让 adapter 解析模型能力、补默认值、校验参数。</li>
+</ul>
+<p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent-loop/src/agent.ts#L563-L610" target="_blank" rel="noopener noreferrer"><code>agent.ts#L563-L610</code></a>。</p>
+<p><code>prepareCall()</code> 返回的是一个 <strong>one-shot</strong> 的 prepared call（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm/src/index.ts#L956-L1020" target="_blank" rel="noopener noreferrer"><code>llm/src/index.ts#L956-L1020</code></a>）：它绑定了 adapter 这一代的能力、默认值和重试策略，只能 dispatch 一次。这样即使中途 HMR 换了 adapter，也不会出现“用 A 的能力解析、用 B 的端点发送”的错配。</p>
+<p>接着，循环把系统提示词和用户消息<strong>按顺序</strong>提交到日志：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent-loop/src/agent.ts#L416-L437" target="_blank" rel="noopener noreferrer"><code>agent.ts#L416-L437</code></a>。</p>
+<p>这里有一个很关键的设计：<strong>请求不是从一份单独维护的 messages 数组拼出来的，而是从刚写进日志的 surface 推导出来的</strong>。<code>buildRequest()</code> 会写 <code>request/header</code>，然后从 <code>session.deriveMessages()</code> 拿到完整历史。这就是“模型可见 ⟺ 已记录”（model-visible ⟺ logged）的落地方式。</p>
+<h2> 6. 流式接收：chunk 与消息是两条通道</h2>
+<p>模型开始返回后，循环同时做两件事：</p>
+<ul>
+<li><strong>实时通道</strong>：每个 chunk 通过 <code>agent/assistant-stream</code> 事件推给 UI。它是 process-local 的，不落日志。</li>
+<li><strong>持久通道</strong>：<code>AssistantStreamAttempt</code> 在内存里累积完整的 timed stream；成功结束时写一条 <code>assistant/message</code>，失败/取消/重试则写 <code>assistant/attempt</code>。</li>
+</ul>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent-loop/src/agent.ts#L451-L460" target="_blank" rel="noopener noreferrer"><code>agent.ts#L451-L460</code></a>。</p>
+<p>成功时的落账：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent-loop/src/agent.ts#L529-L546" target="_blank" rel="noopener noreferrer"><code>agent.ts#L529-L546</code></a>。</p>
+<p>为什么要区分 <code>assistant/message</code> 和 <code>assistant/attempt</code>？</p>
+<ul>
+<li><code>assistant/message</code> 是<strong>模型可见历史</strong>的一部分，会进入下一次请求。</li>
+<li><code>assistant/attempt</code> 只保留失败、取消、重试等没有产生最终消息的尝试（包括它的原始流），用于重放、诊断和 token 统计，但<strong>不进入历史</strong>。否则一次失败的半截回答会污染后续对话。</li>
+</ul>
+<h2> 7. 工具调度：barrier + 有界并发池</h2>
+<p>如果模型返回了 tool call，<code>step()</code> 会调用 <code>executeToolCalls()</code>（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent-loop/src/tool-calls.ts#L60-L102" target="_blank" rel="noopener noreferrer"><code>tool-calls.ts#L60-L102</code></a>）。</p>
+<p>调度规则不复杂，但很讲究：</p>
+<ol>
+<li>按模型给出的顺序遍历调用；</li>
+<li>用 <code>ctx.tools.executionMode(exec)</code> 查这个调用是 <code>parallel</code> 还是独占；</li>
+<li>独占调用单独成组，形成<strong>屏障</strong>；</li>
+<li><code>parallel</code> 调用进入一个有界滚动池，最多 <code>maxParallelToolCalls</code> 个同时执行；</li>
+<li><strong>结果按模型顺序提交</strong>，即使实际完成顺序不同。</li>
+</ol>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent-loop/src/tool-calls.ts#L83-L100" target="_blank" rel="noopener noreferrer"><code>tool-calls.ts#L83-L100</code></a>。</p>
+<p>“按模型顺序提交”是这里最容易低估的点。工具 A 和 B 并发执行，B 先完成，但日志里仍然先写 A 的 <code>tool/result</code>，再写 B 的。这样重放时工具结果和 assistant 消息里的 call 顺序严格对应，不会出现“结果对不上调用”的历史。</p>
+<h2> 8. 收尾：step 结束之后</h2>
+<p>一个 step 结束后，循环根据 <code>stepEnd</code> 决定下一步：</p>
+<ul>
+<li>如果 <code>max-tokens</code> → 记下这个结束原因，turn 最终以它收尾；</li>
+<li>如果模型没有再请求工具 → <code>completed</code>；</li>
+<li>如果还有工具结果要回给模型 → 进入下一个 step；</li>
+<li>如果 <code>agent/turn-stopping</code> 没有阻止，且 inbox 里没有新的 next-step 输入 → 结束 turn。</li>
+</ul>
+<p>最后，在 <code>finally</code> 里写 <code>turn/end</code>：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent-loop/src/agent.ts#L385-L387" target="_blank" rel="noopener noreferrer"><code>agent.ts#L385-L387</code></a>。</p>
+<p><code>reason</code> 可能是 <code>completed</code>、<code>max-tokens</code>、<code>blocked</code>、<code>aborted</code>、<code>error</code> 或 <code>interrupted</code>。最后一个只有恢复路径会写，正常循环不会产生。</p>
+<h3> 取消和失败时发生了什么</h3>
+<ul>
+<li><strong>取消</strong>：<code>agent.cancel()</code> 触发 abort；已经流出的文本会以 <code>interrupted: true</code> 的 <code>assistant/message</code> 落账，未开始的 tool call 会得到 <code>ABORTED_BEFORE_DISPATCH</code> 的合成结果。</li>
+<li><strong>失败</strong>：未回答的 tool call 会补 <code>TOOL_OUTCOME_UNKNOWN</code>（已记录 <code>tool/call</code>）或 <code>TOOL_NOT_STARTED</code>（还没记录）的结果。这样下一次请求仍然有配对的 tool history，不会因为一次失败让模型看到“有调用没结果”的畸形历史。</li>
+<li><strong>重试</strong>：<code>agent/request-error</code> 可以返回 <code>{ kind: 'retry' }</code>；重试<strong>不会</strong>重新跑 <code>agent/pre-step</code>，也不会重复提交用户消息，只重新准备并发送请求。</li>
+</ul>
+<h2> 9. 为什么值得这么复杂</h2>
+<p>把这条链路和“while(true) { call model; run tools }”相比，多出来的复杂度主要买了四件事：</p>
+<ol>
+<li><strong>可重放</strong>：所有模型可见输入都在日志里，进程重启后能重建请求。</li>
+<li><strong>可取消</strong>：每个异步阶段都有 signal，取消不会留下半截状态。</li>
+<li><strong>可观测</strong>：UI 能在 chunk 级别看到模型在做什么，而不是等整条消息结束。</li>
+<li><strong>可扩展</strong>：pre-step、request、request-error、turn-stopping 都是 waterfall，插件可以在不改循环的前提下改变行为。</li>
+</ol>
+<p>代价是状态机很大，读代码时容易迷失。我的经验是抓住三个轴：<strong>turn/step 的生命周期、inbox 的认领、surface 的提交</strong>。这三条线清楚了，剩下的都是细节。</p>
+<h2> 小结</h2>
+<ul>
+<li>一个 turn 包含零个或多个 step；step 是一次模型请求加它的工具调用。</li>
+<li><code>turn/start</code> 先于认领，<code>step/end</code> 放在 finally，保证崩溃后仍可恢复。</li>
+<li><code>pre-step</code> 决定这一轮接受哪些输入；<code>agent/request</code> 决定用哪个模型；<code>prepareCall</code> 绑定 adapter 能力。</li>
+<li>流式 chunk 走实时事件，落账走 <code>assistant/message</code> / <code>assistant/attempt</code>。</li>
+<li>工具调度是“独占屏障 + 有界并发池”，结果按模型顺序提交。</li>
+</ul>
+<p>下一篇拆工具系统：一个 tool call 从参数校验到真正执行，中间要过哪几道关，审批和沙箱又挂在哪里。</p>
+]]></content>
+    <category term="DeepSeek Harness"/>
+    <published>2026-10-19T00:00:00.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">工具调用的四道关卡：注册、校验、审批、执行</title>
+    <id>https://sparksding.github.io/deepseek-harness/04-tools.html</id>
+    <link href="https://sparksding.github.io/deepseek-harness/04-tools.html"/>
+    <updated>2026-10-19T08:50:28.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。</p>
+</blockquote>]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。</p>
+</blockquote>
+<p>在很多 agent 实现里，工具就是一个函数：模型给出名字和参数，框架 <code>JSON.parse</code> 一下，直接调用。</p>
+<p>DSH 不是这样。一个 tool call 从被模型生成，到真正产生副作用，中间有一条固定的流水线：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>这篇拆开这条链，重点回答两个问题：<strong>为什么工具作者只需要写 <code>execute</code>，而审批、沙箱、超时、UI 展示都能插进来？</strong> 以及 <strong>审批（approval）和沙箱（sandbox）到底是不是一回事？</strong></p>
+<h2> 1. 工具是一个带类型契约的定义</h2>
+<p>DSH 用 <code>defineTool()</code> 声明工具。一个最小的例子（来自 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/README.md#L38-L62" target="_blank" rel="noopener noreferrer"><code>tools/README.md#L38-L62</code></a>）：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>这里有几个容易忽略的设计：</p>
+<ul>
+<li><strong><code>parameters</code> 是 DSL，不是裸 JSON Schema。</strong> <code>defineTool</code> 会把它编译成模型可见的 schema，并在执行前校验参数。支持 <code>string</code>、<code>number</code>、<code>integer</code>、<code>boolean</code>、<code>null</code>、<code>array</code>、<code>object</code>、精确多选一的 <code>oneOf</code>，以及 author-only 的 <code>json</code>。</li>
+<li><strong><code>output</code> 是必填的。</strong> 工具返回的 canonical value 必须先通过 <code>output.schema</code> 校验，再由 <code>render</code> 转成模型看到的内容。执行值和展示内容被刻意分开了。</li>
+<li><strong><code>execute</code> 只返回 canonical JSON 值。</strong> 它不负责拼 UI、不负责写日志、也不负责决定是否可见。</li>
+<li><strong><code>timeoutMs</code>、<code>isConcurrencySafe</code>、<code>presentCall</code> 这些元数据不会出现在模型请求里。</strong> <code>schemas()</code> 有显式 allowlist，只把 <code>name</code> / <code>description</code> / <code>parameters</code> 发给模型（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/src/index.ts#L1268" target="_blank" rel="noopener noreferrer"><code>index.ts#L1268</code></a>）。</li>
+</ul>
+<p>后两点是整条流水线能成立的前提：<strong>模型看到的是接口，Host 掌握的是实现和展示。</strong></p>
+<h2> 2. 注册是 effect，作用域决定可见性</h2>
+<p><code>ctx.tools.register()</code> 的返回值不是 <code>void</code>，而是一个精确的 disposer：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/src/index.ts#L1091-L1095" target="_blank" rel="noopener noreferrer"><code>index.ts#L1091-L1095</code></a>。</p>
+<p>这带来三个结果：</p>
+<ol>
+<li>插件卸载时工具自动消失，不需要手写反注册；</li>
+<li>同一个工具可以按 agent scope 注册，只对那个 agent 可见；</li>
+<li>注册顺序不影响最终可见集合，最终由 scope 层叠决定。</li>
+</ol>
+<p>DSH 还提供了 <code>restrict()</code> 做“只允许 / 禁止”掩码。它要求调用方有 scoped context（<code>agent.ctx</code>），因为一个全局 restriction 会把所有 agent 的工具都裁掉——这种“看起来像配置、实际上越权”的 API，DSH 选择直接报错而不是默认放宽（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/src/index.ts#L1104-L1125" target="_blank" rel="noopener noreferrer"><code>index.ts#L1104-L1125</code></a>）。</p>
+<h2> 3. 第一道关：pre-execute 决定 allow / deny / ask</h2>
+<p>流水线的入口在 <code>prepareExecution()</code>（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/src/index.ts#L1501-L1545" target="_blank" rel="noopener noreferrer"><code>index.ts#L1501-L1545</code></a>）：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><code>tools/pre-execute</code> 是一个 waterfall，监听器可以返回：</p>
+<ul>
+<li><code>{ kind: 'allow' }</code>：继续；</li>
+<li><code>{ kind: 'deny', reason, info? }</code>：跳过工具体，返回错误结果；</li>
+<li><code>{ kind: 'ask', reason?, displayReason? }</code>：交给审批服务；</li>
+<li><code>{ kind: 'cancel' }</code>：按取消处理。</li>
+</ul>
+<p>注意默认值是 <code>allow</code>。也就是说，<strong>没有策略插件时工具默认可执行</strong>；需要审批的工具必须自己（或某个策略插件）声明 <code>ask</code>。这是 DSH 的默认信任模型：能力由 composition 决定，而不是由工具作者偷偷加一个“需要审批”的布尔值。</p>
+<p>紧接着是<strong>单调 guard</strong>。<code>ctx.tools.guard()</code> 注册的检查在 pre-execute 之后运行，只能 deny 或弃权，不能把已经拒绝的调用重新放行：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/src/index.ts#L1527-L1539" target="_blank" rel="noopener noreferrer"><code>index.ts#L1527-L1539</code></a>。</p>
+<p>这个顺序是有意的：<strong>可扩展的 ask 先走，不可撤销的 owner policy 后走。</strong> 前者可以被用户批准，后者不能被后续监听器翻案。</p>
+<h2> 4. 审批：一次性的、按调用的人机交互</h2>
+<p>当 gate 返回 <code>ask</code>，<code>serviceAsk()</code> 会去找 <code>ctx.approval</code>：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/src/index.ts#L1735-L1765" target="_blank" rel="noopener noreferrer"><code>index.ts#L1735-L1765</code></a>。</p>
+<p><code>ApprovalOutcome</code> 有四种：<code>allowed-once</code>、<code>rejected</code>、<code>cancelled</code>、<code>unavailable</code>。只有 <code>allowed-once</code> 会继续；其余三种都变成 deny，但给出的 reason 不同，模型能区分“人拒绝”“调用被取消”“没有审批通道”。</p>
+<p>几个重要约束：</p>
+<ul>
+<li><strong>审批是 per-call 的。</strong> 没有“以后都允许”的隐式记忆；standing policy 属于 session/permission 配置，不在这条链上。</li>
+<li><strong>没有 approval 服务时，ask 退化为 deny。</strong> 这是 fail-closed，不是“没装审批就放行”。</li>
+<li><strong>审批请求带 <code>agent</code> 和 <code>callId</code>。</strong> 所以 UI 能把审批卡片挂到正确的会话和工具调用上，而不是一个全局弹窗。</li>
+<li><strong><code>signal</code> 会被传进去。</strong> 用户取消整个 turn 时，挂起的审批也会被取消。</li>
+</ul>
+<h2> 5. 第二道关：execute 是 around-dispatch</h2>
+<p>审批和 guard 都通过后，进入 <code>tools/execute</code> waterfall（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/src/index.ts#L1609-L1616" target="_blank" rel="noopener noreferrer"><code>index.ts#L1609-L1616</code></a>）：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>这一层是 <strong>around</strong>，不是 before/after。它适合做：</p>
+<ul>
+<li>超时（<code>dsh-tool-call-timeout-policy</code> 就是 <code>tools/execute</code> 的 wrapper）；</li>
+<li>重试；</li>
+<li>指标和审计；</li>
+<li>替换 <code>exec.signal</code>（只有这一层允许）。</li>
+</ul>
+<p>工具函数体拿到的 <code>exec</code> 里有 <code>signal</code>、<code>callId</code>、<code>agent</code> 等上下文。<strong>工具作者必须观察 <code>exec.signal</code> 并把它转发给底层 IO</strong>；DSH 不做进程内强杀，取消是协作式的。</p>
+<h2> 6. 结果处理：project → post → finalize → result</h2>
+<p>工具返回后，结果还要过三段：</p>
+<ol>
+<li><strong><code>projectContent</code></strong>：工具自己安装“执行后准备好的内容”（比如把结构化结果转成文本/图片）；</li>
+<li><strong><code>tools/post-execute</code></strong>：策略层可以接受、替换内容、阻断并给出纠正反馈，或者附加 <code>additionalContexts</code>；</li>
+<li><strong><code>finalizeContent</code></strong>：工具自己最后一层内容变换，必须是同步、全函数、不抛错的；它不能改 <code>value</code>，只能改模型看到的内容。</li>
+</ol>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/src/index.ts#L1789-L1793" target="_blank" rel="noopener noreferrer"><code>index.ts#L1789-L1793</code></a>。</p>
+<p>最后，<code>tools/result</code> 是一个<strong>只读通知</strong>：结果已经冻结，监听器只能观察，不能修改。它适合做 telemetry、UI 卡片、计费统计。</p>
+<h2> 7. 审批和沙箱不是一回事</h2>
+<p>这两个概念经常被混在一起。在 DSH 里：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>审批（approval）</th>
+<th>沙箱（sandbox）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>回答的问题</td>
+<td>这次调用要不要让人点“允许”？</td>
+<td>进程能写哪些路径？</td>
+</tr>
+<tr>
+<td>粒度</td>
+<td>每次 tool call</td>
+<td>每次受限执行</td>
+</tr>
+<tr>
+<td>决策者</td>
+<td>用户 / 审批通道</td>
+<td>后端（bwrap、Seatbelt、ACL）</td>
+</tr>
+<tr>
+<td>失败方式</td>
+<td>没有通道 → deny</td>
+<td>无法约束 → 报告 partial 或拒绝</td>
+</tr>
+<tr>
+<td>代码位置</td>
+<td><code>ctx.approval</code>，工具流水线</td>
+<td><code>ctx.sandbox</code>，shell/fs 等消费者</td>
+</tr>
+</tbody>
+</table>
+<p>沙箱的模式只有三种（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/docs/subsystems/sandbox.md" target="_blank" rel="noopener noreferrer"><code>sandbox.md</code></a>）：</p>
+<ul>
+<li><code>read-only</code>：只允许必要的 sink（比如 <code>/dev/null</code>）；</li>
+<li><code>workspace-write</code>：允许写 workspace 和 backend 提供的临时目录；</li>
+<li><code>danger-full-access</code>：不约束，直接 spawn 原始 argv。</li>
+</ul>
+<p><code>ctx.sandboxPolicy.resolve()</code> 负责把 session 的 cwd、显式覆盖模式和部署默认值合成一个 per-call policy（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/sandbox/sandbox-policy/src/index.ts#L164" target="_blank" rel="noopener noreferrer"><code>sandbox-policy/src/index.ts#L164</code></a>）。真正执行时，消费者把 argv 包成 <code>bwrap ...</code> / <code>sandbox-exec ...</code> 再 spawn；<code>danger-full-access</code> 的消费者直接 spawn，不经过 <code>ctx.sandbox</code>。</p>
+<p>所以一次 <code>bash</code> 调用的完整路径是：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>审批管“要不要做”，沙箱管“能做到什么程度”。</strong> 两者都失败关闭，但职责完全不同。</p>
+<h2> 8. 并发与取消</h2>
+<p>并发分类在 <code>executionMode()</code>（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/src/index.ts#L1311-L1325" target="_blank" rel="noopener noreferrer"><code>index.ts#L1311-L1325</code></a>）：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>这是典型的 <strong>fail-closed 分类</strong>：只有工具明确声明、且对这组参数返回严格 <code>true</code>，才算并发安全；未知工具、隐藏工具、分类器抛错，一律独占。</p>
+<p>取消分两个阶段：</p>
+<ul>
+<li>进入 <code>execute</code> 前已取消 → <code>ABORTED_BEFORE_DISPATCH</code>；</li>
+<li>工具体已经开始 → 成功结果被替换为 <code>ABORTED</code>。</li>
+</ul>
+<p>更具体的失败（denial、timeout、<code>UNKNOWN_TOOL</code>、工具自己抛的结构化错误）优先级更高，不会被一个笼统的取消覆盖。</p>
+<h2> 9. 这套设计换来了什么</h2>
+<p>如果只写一个 <code>read_file</code>，这条流水线显然过重。但把视角拉到“一个可部署的 agent 产品”，它解决的是几个绕不开的问题：</p>
+<ul>
+<li><strong>策略跨工具族复用。</strong> 审批挂在 <code>tools/*</code> 事件上，沙箱和 fs 检查则由 shell/fs 消费者在能力边界调用；工具作者不需要各写一遍。</li>
+<li><strong>模型可见与执行值分离。</strong> 工具可以返回结构化值给程序调用，同时给模型渲染一段摘要；替换展示内容不会破坏 canonical 值。</li>
+<li><strong>失败不终止 turn。</strong> 工具错误变成一条 <code>tool/result</code>，模型可以读到错误、决定重试或换方法；只有插件/流水线本身失败才会结束这一轮。</li>
+<li><strong>UI 可预测。</strong> 调用开始就写 <code>tool/call</code>，结束写 <code>tool/result</code>；前端按事件重建卡片，不依赖工具自己发 UI 指令。</li>
+</ul>
+<h2> 小结</h2>
+<ul>
+<li>工具是“schema + canonical output + execute”的定义，不是裸函数。</li>
+<li>调用链固定为：pre-execute → 审批 → guard → execute → project → post-execute → finalize → result。</li>
+<li>审批是 per-call 的人机决策，没有通道就 deny；沙箱是 per-execution 的进程约束，两者职责不同。</li>
+<li>并发分类 fail-closed；取消协作式，且不会覆盖更具体的错误。</li>
+<li>工具作者只写 <code>execute</code>，策略和展示通过事件挂载。</li>
+</ul>
+<p>下一篇看会话日志：为什么“模型历史”不是存下来的一串 message，而是从 append-only 事件流里推导出来的，以及换一个进程为什么还能接着聊。</p>
+]]></content>
+    <category term="DeepSeek Harness"/>
+    <published>2026-10-19T00:00:00.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">会话日志：模型历史是“算”出来的</title>
+    <id>https://sparksding.github.io/deepseek-harness/05-session.html</id>
+    <link href="https://sparksding.github.io/deepseek-harness/05-session.html"/>
+    <updated>2026-10-19T08:50:28.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。</p>
+</blockquote>]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。</p>
+</blockquote>
+<p>大多数 agent 实现会维护一个 <code>messages: Message[]</code>，每次请求把它发给模型，再把新消息 push 进去。简单直接，但一旦要处理“恢复会话”“压缩历史”“fork 一个分支”“解释模型当时到底看到了什么”，这个数组就会变成一堆补丁。</p>
+<p>DSH 换了一个更彻底的做法：<strong>只记录 append-only 的事件流，模型历史在每次请求时推导出来。</strong></p>
+<p>这篇讲清楚四件事：日志里记什么、surface 怎样决定模型看到什么、推导为什么能增量、以及日志怎样落盘和恢复。</p>
+<h2> 1. Session 是一条只追加的事件流</h2>
+<p><code>Session</code> 的核心是一个 <code>SessionEvent[]</code>，每个事件都有连续的 <code>seq</code>，并且必须是 lossless JSON（不能有 BigInt、循环引用、稀疏数组这些无法无损往返的值）。</p>
+<p>事件类型由 <code>SessionEventMap</code> 声明，并且是 <strong>merge-extensible</strong> 的：插件可以通过声明合并往里加自己的事件（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/session/src/types.ts#L282" target="_blank" rel="noopener noreferrer"><code>types.ts#L282</code></a>）。</p>
+<p>核心事件可以分成几类：</p>
+<table>
+<thead>
+<tr>
+<th>类别</th>
+<th>例子</th>
+<th>是否进入模型历史</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>生命周期</td>
+<td><code>turn/start</code>、<code>step/start</code>、<code>step/end</code>、<code>turn/end</code></td>
+<td>否</td>
+</tr>
+<tr>
+<td>模型可见消息</td>
+<td><code>system/message</code>、<code>user/message</code>、<code>developer/message</code>、<code>assistant/message</code>、<code>tool/result</code></td>
+<td>是</td>
+</tr>
+<tr>
+<td>工具过程</td>
+<td><code>tool/call</code></td>
+<td>否（但 <code>tool/result</code> 是）</td>
+</tr>
+<tr>
+<td>请求元数据</td>
+<td><code>request/header</code>、<code>request/context</code></td>
+<td>否</td>
+</tr>
+<tr>
+<td>失败尝试</td>
+<td><code>assistant/attempt</code></td>
+<td>否</td>
+</tr>
+<tr>
+<td>插件记录</td>
+<td><code>plugin:&lt;owner&gt;/&lt;record&gt;</code></td>
+<td>否</td>
+</tr>
+</tbody>
+</table>
+<p>一个典型的成功 step 在日志里长这样：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>注意 <code>assistant/message</code> 里除了消息内容，还嵌入了产生它的<strong>紧凑 timed stream 记录</strong>。这样“模型当时流出了什么”也能重放，而不是只剩下最终拼好的文本。</p>
+<h2> 2. 只有 surface 事件决定模型看到什么</h2>
+<p>并非所有事件都会变成 <code>Message</code>。DSH 用一个 <strong>surface</strong> 的概念来区分：</p>
+<ul>
+<li>五类 surface 事件：<code>system/message</code>、<code>developer/message</code>、<code>user/message</code>、<code>assistant/message</code>、<code>tool/result</code>；</li>
+<li>每个 surface 事件在 append 时必须带 <code>surfaceOp</code>：<code>'append'</code> 或 <code>{ op: 'replace', startSeq, endSeq }</code>；</li>
+<li>非 surface 事件不允许带 <code>surfaceOp</code>。</li>
+</ul>
+<p><code>replace</code> 是压缩和历史改写的关键。它不是删除旧事件，而是<strong>让一段旧节点不再进入推导结果</strong>。原事件仍然留在日志里，可以审计、可以回放。</p>
+<p>surface 的折叠逻辑在 <code>foldSurface()</code>（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/session/src/surface.ts#L594" target="_blank" rel="noopener noreferrer"><code>surface.ts#L594</code></a>）。它会校验：</p>
+<ul>
+<li>替换范围必须是当前 surface 顺序里连续存在的节点；</li>
+<li><code>startSeq</code> / <code>endSeq</code> 是闭区间；</li>
+<li>替换不能覆盖 node 0 的 system prompt，除非替换事件本身也是 <code>system/message</code> 并且恰好覆盖它。</li>
+</ul>
+<p>最后一条是安全相关的：system prompt 是模型行为的最高优先级指令，不允许被一个普通消息的 replace 悄悄换掉。</p>
+<h2> 3. deriveMessages：增量、缓存、返回快照</h2>
+<p><code>Session.deriveMessages()</code> 的实现很短（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/session/src/index.ts#L984-L1010" target="_blank" rel="noopener noreferrer"><code>index.ts#L984-L1010</code></a>）：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>三个设计点：</p>
+<ol>
+<li><strong>增量。</strong> 正常情况下只处理新追加的 surface 节点，复杂度是 O(新增节点)。</li>
+<li><strong>替换或投影变化时重建。</strong> <code>contentGeneration</code> 变了就清空缓存；压缩、消息投影、replace 都会让它递增。</li>
+<li><strong>返回新数组，但消息对象共享且深冻结。</strong> 调用方可以安全地排序/切片这个数组，但不能改里面的 <code>Message</code>；日志不会被外部代码污染。</li>
+</ol>
+<p><code>deriveEventMessage()</code> 还会应用插件注册的 <strong>message projection</strong>。这让插件可以改变模型看到的内容，而不修改持久化事件本身；投影定义必须纯、可重放。声明了投影的事件在定义缺失时，append 会被拒绝。</p>
+<h2> 4. request/header：请求也是可重建的</h2>
+<p>只有消息还不够。要重建一次模型请求，还需要知道：</p>
+<ul>
+<li>provider / model；</li>
+<li>reasoning effort、max tokens 等调用参数；</li>
+<li>当时可见的工具 schema；</li>
+<li>adapter 补的默认值。</li>
+</ul>
+<p>DSH 把这些写成 <code>request/header</code>，并在以下时机记录（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/session/README.md#L102-L104" target="_blank" rel="noopener noreferrer"><code>session/README.md#L102-L104</code></a>）：</p>
+<ul>
+<li>第一次请求（<code>initial</code>）；</li>
+<li>恢复会话（<code>resume</code>）；</li>
+<li>envelope 变化（<code>change</code>）；</li>
+<li>显式开启新的消息序列（<code>series</code>）。</li>
+</ul>
+<p>同一序列内的后续 step、重试、普通 turn 继承最近的 header，不重复记录。</p>
+<p>而 <code>request/context</code> 只记录 provider、model、context window、<code>systemPromptUpdate</code> 模式这些路由事实，并且只在变化时写。两者合起来，才能做到 <strong>每个请求都是日志的纯函数</strong>。</p>
+<p>这带来一个很重要的推论：<strong>prompt 不是 header 的一部分。</strong> rendered system prompt 是 <code>system/message</code> 这个 surface 节点，不是请求头字段。这样 system prompt 的修改、清空、追加都能像普通消息一样被 surface 规则管理。</p>
+<h2> 5. 持久化：句柄、批处理、耐久屏障</h2>
+<p>内存里的 <code>Session</code> 不负责落盘。持久化是一个独立的 capability seam：<code>ctx.sessionPersistence</code> 提供 <code>create</code> / <code>open</code> / <code>stat</code> / <code>list</code>，<code>create</code> 和 <code>open</code> 返回一个 per-session 的 <code>SessionHandle</code>（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/docs/subsystems/persistence.md" target="_blank" rel="noopener noreferrer"><code>persistence.md</code></a>）。</p>
+<p><code>SessionHandle</code> 只有四个核心操作：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>几个关键语义：</p>
+<ul>
+<li><strong>单写者。</strong> 同一个 session id 同时只能有一个写句柄；第二个 <code>open(id, 'write')</code> 会报 <code>SessionAlreadyOwnedError</code>，避免两个进程同时改一条日志。</li>
+<li><strong>append 是尽力而为，flush 才是承诺。</strong> 后端可以缓冲、批量写；只有 <code>flush()</code> resolve 才保证崩溃后还在。</li>
+<li><strong>批处理窗口。</strong> <code>session/event</code> 是同步通知，后端按 session id 路由到写句柄的缓冲区，固定窗口到期后批量 append；<code>session/flush</code> 会取消等待并排空。</li>
+<li><strong>未 materialize 的会话不存在。</strong> <code>create()</code> 可以只返回句柄不写文件；在第一次 append 或 flush 之前崩溃，这个会话就等于没出现过。</li>
+</ul>
+<h2> 6. JSONL 后端：文件布局与崩溃恢复</h2>
+<p>DSH 自带的后端是 <code>dsh-session-persistence-jsonl</code>。默认用 <strong>Zstandard 帧</strong>存储：header 一帧，之后每个 append 批次一帧，每帧带校验和；也可以配置 <code>compression: 'none'</code> 变成纯文本行。</p>
+<p>磁盘布局大致是：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>规则很硬：</p>
+<ul>
+<li>已提交的代<strong>永不重命名、覆盖或删除</strong>；</li>
+<li>读取时选编号最高的 canonical 代；</li>
+<li>旧格式只在<strong>写打开</strong>时发布一个同目录的新代，源文件保持字节不变；</li>
+<li>只读打开可以在内存里迁移，但不发布后继。</li>
+</ul>
+<p>崩溃恢复的边界也划得很清楚：<strong>持久化层只丢弃“未完成的物理尾帧”，不修复语义。</strong> 如果日志停在一个没有 <code>turn/end</code> 的 turn 中间，恢复是读者（agent-loop）的职责：它通过写句柄读到合法前缀，算出缺失的 <code>tool/result</code>、<code>step/end</code>，再追加一个 <code>turn/end { reason: { kind: 'interrupted' } }</code>。</p>
+<p>为什么不让存储层直接截断到最后一条完整记录？因为一个长时间运行的 turn 可能包含大量 step 和工具输出，那些事件在崩溃前已经 durable 了；截掉整个 turn 会丢失真实发生过的事实。</p>
+<h2> 7. 为什么值得事件溯源</h2>
+<p>事件溯源在这个场景里买到了四样东西：</p>
+<ol>
+<li><strong>重放。</strong> 恢复会话不需要“把消息数组序列化再反序列化”，只需要重新推导。</li>
+<li><strong>Fork。</strong> <code>ctx.sessions.fork(source, boundary)</code> 复制一段精确的事件前缀，补上继承标记和必要的收尾事件，就得到一个独立子会话。</li>
+<li><strong>压缩不丢历史。</strong> compaction 用 <code>replace</code> 隐藏旧节点，原始事件仍在；审计和调试能看到“模型当时看到了什么、后来为什么不见了”。</li>
+<li><strong>多消费者一致。</strong> transcript、telemetry、session title、UI 时间线都从同一份日志推导，不会各存一份、各算一套。</li>
+</ol>
+<p>代价同样明显：</p>
+<ul>
+<li>日志会持续增长，压缩只影响推导，不减小磁盘占用；</li>
+<li>每次 append 都要做 lossless JSON 校验和深拷贝，写路径比“push 一个对象”重；</li>
+<li>格式迁移是长期负担，所以 DSH 用版本化代文件 + 相邻迁移链来隔离；</li>
+<li><code>assistant/attempt</code> 会保留失败尝试的紧凑流，存储成本换诊断能力。</li>
+</ul>
+<h2> 8. 一次恢复发生了什么</h2>
+<p>把上面的碎片拼起来，<code>ctx.agents.resume(sessionId)</code> 大致是：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>之后 agent-loop 从恢复后的日志推导 messages，继续下一个 step。对模型来说，它只是看到了一段带“上次中断”说明的历史；对系统来说，没有凭空捏造任何模型没见过的内容。</p>
+<h2> 小结</h2>
+<ul>
+<li>Session 是 append-only 的 typed event log，<code>seq</code> 连续，事件必须是 lossless JSON。</li>
+<li>只有 surface 事件进入模型历史；<code>replace</code> 隐藏节点但不删除事件。</li>
+<li><code>deriveMessages()</code> 增量推导，替换/投影变化时重建，返回共享冻结消息的新数组。</li>
+<li><code>request/header</code> + <code>request/context</code> 让每个请求都能从日志重建。</li>
+<li>持久化通过 <code>SessionHandle</code> 单写者落盘；append 不保证耐久，<code>flush</code> 才保证。</li>
+<li>崩溃恢复只丢弃未完成的物理尾帧，语义修复由 agent-loop 负责。</li>
+</ul>
+<p>下一篇看模型适配层：<code>prepareCall()</code> 绑定了什么，<code>StreamChunk</code> 怎样变成消息，以及 DSH 为什么把重试放在 agent 的 <code>agent/request-error</code> 而不是 adapter 里。</p>
+]]></content>
+    <category term="DeepSeek Harness"/>
+    <published>2026-10-19T00:00:00.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">模型适配层：一次请求怎样变成流</title>
+    <id>https://sparksding.github.io/deepseek-harness/06-llm.html</id>
+    <link href="https://sparksding.github.io/deepseek-harness/06-llm.html"/>
+    <updated>2026-10-19T08:50:28.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。</p>
+</blockquote>]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。</p>
+</blockquote>
+<p>DSH 支持 DeepSeek 官方 API、Messages 兼容网关，也支持通过 pi-ai 接其他 provider。但 agent 主循环里没有一行 provider-specific 的代码。</p>
+<p>这条边界就是 <code>packages/llm</code>：它定义一套<strong>与 provider 无关的词汇</strong>（消息、内容块、流式 chunk、请求选项），每个 adapter 只负责把自家 wire format 翻译成这套词汇。这篇讲清楚 <code>prepareCall()</code>、<code>stream()</code>、<code>StreamChunk</code> 和重试之间的关系。</p>
+<h2> 1. 三层职责</h2>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><code>LlmRuntime</code> 本身<strong>没有 wire code</strong>，也没有配置（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm/README.md#L30-L45" target="_blank" rel="noopener noreferrer"><code>llm/README.md#L30-L45</code></a>）。它只做注册表、能力解析和调用准备。真正发 HTTP 的是 adapter，比如 <code>dsh-llm-deepseek</code>。</p>
+<p>这个分层的关键收益是：<strong>agent 循环只依赖一套词汇</strong>。换 provider 不影响 session log 的格式，也不影响 UI 怎样渲染消息。</p>
+<h2> 2. 词汇表：消息、块、chunk</h2>
+<p>一次请求是 <code>GenerateOptions</code>：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm/src/types.ts#L529-L571" target="_blank" rel="noopener noreferrer"><code>types.ts#L529-L571</code></a>。</p>
+<p><code>Message</code> 是带身份和来源的持久消息；<code>RequestUserInput</code> 是只用于本次请求、没有 id/source 的临时用户输入。这个区分很重要：<strong>能进 session log 的必须是 <code>Message</code>，一次性输入不能假装成持久消息。</strong></p>
+<p>模型的输出不走 <code>Message</code>，而是走 <code>StreamChunk</code>：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>见 <a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm/src/types.ts#L470-L484" target="_blank" rel="noopener noreferrer"><code>types.ts#L470-L484</code></a>。</p>
+<p>协议约束很明确：</p>
+<ul>
+<li><code>index</code> 用来关联交错的 delta；</li>
+<li><code>block-end</code> 带已经拼好的完整 block；</li>
+<li><code>usage</code> 必须在 <code>finish</code> 之前；</li>
+<li><code>finish</code> 之后不能再有 chunk；</li>
+<li>tool call 的参数始终是<strong>原始 JSON 字符串</strong>，框架不在流式阶段解析它。</li>
+</ul>
+<p>最后一条是刻意的：模型可能分多段吐出同一个 tool call 的 JSON，过早解析会失败；把拼接留给 <code>BlockAssembler</code>，才能保证“半截 JSON”不会变成错误。</p>
+<h2> 3. prepareCall：把能力绑定到一次调用</h2>
+<p><code>prepareCall()</code> 是 adapter seam 上最重要的方法（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm/src/index.ts#L956-L1020" target="_blank" rel="noopener noreferrer"><code>index.ts#L956-L1020</code></a>）：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>它做了五件事：</p>
+<ol>
+<li><strong>查 adapter</strong>：route 没注册就报 <code>NO_ADAPTER</code>；</li>
+<li><strong>问模型能力</strong>：context window、输出上限、reasoning efforts、输入模态、<code>systemPromptUpdate</code> / <code>toolUpdate</code> 模式；</li>
+<li><strong>补默认值</strong>：adapter 声明的默认 reasoning effort、max tokens 在这里物化；</li>
+<li><strong>校验</strong>：显式参数必须和这个模型的能力匹配；</li>
+<li><strong>冻结并绑定</strong>：返回的 prepared call 只能 dispatch 一次，而且 config 必须和准备时完全一致。</li>
+</ol>
+<p>为什么要这么重？因为一次模型调用的“能力”和“参数”必须在同一个 adapter 代际上解析。否则 HMR 换掉 adapter 后，可能出现“用 A 的图片能力解析、用 B 的端点发送”的错配。</p>
+<p><code>adapterDefaults</code> 还区分了“用户显式设置”和“adapter 补的默认值”。这个区分会写进 <code>request/header</code>，让恢复时知道哪些值需要重新解析、哪些应该保留。</p>
+<h2> 4. stream：一个终止 chunk 收口所有失败</h2>
+<p><code>LlmRuntime.stream()</code> 很短（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm/src/index.ts#L1166-L1180" target="_blank" rel="noopener noreferrer"><code>index.ts#L1166-L1180</code></a>）：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><code>llm/stream</code> 是一个 waterfall，插件可以在 adapter 外面包一层（比如注入日志、改请求、做路由）。最内层是 <code>adapterStream()</code>。</p>
+<p><code>LlmRuntime</code> 用一个统一的 <code>adapterFailureChunk()</code> <strong>把所有 adapter 失败收敛成一个终止 chunk</strong>（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm/src/index.ts#L1183-L1192" target="_blank" rel="noopener noreferrer"><code>index.ts#L1183-L1192</code></a>）：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>这意味着消费者只需要处理一种终止形态：<code>finish</code>。不管是 HTTP 401、限流、超时、取消，还是 adapter 自己抛错，最后都会变成 <code>finish.reason.kind</code> 和稳定的 <code>failure.code</code>。</p>
+<p><strong>消费者按 code 路由，不按 message 文本路由。</strong> 这是 DSH 里反复出现的约定：<code>NO_ADAPTER</code>、<code>MISSING_CREDENTIAL</code>、<code>AUTH</code>、<code>RATE_LIMIT</code>、<code>CONTEXT_WINDOW_EXCEEDED</code>、<code>QUOTA</code> 等。</p>
+<h2> 5. 从 chunk 到消息</h2>
+<p>chunk 是过程，<code>assistant/message</code> 才是结果。中间有两层：</p>
+<ul>
+<li><strong><code>BlockAssembler</code></strong>（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm/src/assembler.ts" target="_blank" rel="noopener noreferrer"><code>assembler.ts</code></a>）：把交错的 delta 拼成 <code>ContentBlock[]</code>，处理 tool call 参数拼接、多 block 索引、block-end 校验；</li>
+<li><strong><code>AssistantStreamAccumulator</code></strong>（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm/src/assistant-stream.ts" target="_blank" rel="noopener noreferrer"><code>assistant-stream.ts</code></a>）：保留带时间戳和 token 边界的紧凑流，供 session log 内嵌。</li>
+</ul>
+<p>在 agent-loop 里，这两层被 <code>AssistantStreamAttempt</code> 包起来：它一边把 chunk 推给实时 UI，一边累积最终消息和 timed stream（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent-loop/src/agent.ts#L451-L460" target="_blank" rel="noopener noreferrer"><code>agent.ts#L451-L460</code></a>）。</p>
+<p>成功后写 <code>assistant/message</code>，失败或取消写 <code>assistant/attempt</code>。后者不进入模型历史，但保留紧凑流，用于诊断和重放。</p>
+<h2> 6. adapter 做什么：以 DeepSeek 为例</h2>
+<p><code>dsh-llm-deepseek</code> 负责：</p>
+<ul>
+<li>把统一的 <code>Message</code> / <code>ContentBlock</code> 翻译成 DeepSeek Messages API 的 content blocks；</li>
+<li>把 <code>reasoningEffort</code> 映射为 <code>output_config.effort</code>；</li>
+<li>处理图片：上传 Files API 或内联 base64，按像素预算缩放；</li>
+<li>维护 replay metadata（模型签名等），只在同一个 adapter 实例内传递；</li>
+<li>声明模型的 context window、输出上限、<code>systemPromptUpdate</code> 和 <code>toolUpdate</code> 模式；</li>
+<li>提供 provider 自己的 <code>retryPolicy</code>。</li>
+</ul>
+<p>它的端点、认证、重试策略都在自己的 README 里（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm-deepseek/README.md" target="_blank" rel="noopener noreferrer"><code>llm-deepseek/README.md</code></a>）。核心循环完全不知道这些细节。</p>
+<p>有一个值得注意的能力协商：<code>systemPromptUpdate: 'in-history'</code>。</p>
+<ul>
+<li>对支持的模型，系统提示词可以追加在缓存历史之后，而不是每次重写最前面的 system message；</li>
+<li>对不支持的模型，loop 会在第一个 system node 上合并最新 prompt；</li>
+<li>这个模式由 <code>prepareCall()</code> 解析，并写进 <code>request/context</code>，所以恢复时能重建同样的请求形态。</li>
+</ul>
+<p>这直接关系到 KV cache 命中率：<strong>能追加就不要重写前缀。</strong></p>
+<h2> 7. 重试为什么不放在 stream 里</h2>
+<p>最直觉的做法是在 adapter 或 <code>LlmRuntime.stream()</code> 里做重试。DSH 没有这么做，而是把重试放到 agent-loop 的 <code>agent/request-error</code> 瀑布上（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm-retry/README.md" target="_blank" rel="noopener noreferrer"><code>llm-retry/README.md</code></a>）。</p>
+<p>原因是<strong>流式请求不能安全地重放</strong>：</p>
+<ul>
+<li>已经吐给用户的 chunk 可能已经被 UI 渲染；</li>
+<li>一次失败的流可能已经产生了半截 tool call；</li>
+<li>直接在 stream 内部重试，调用方无法区分“第一次的 chunk”和“第二次的 chunk”。</li>
+</ul>
+<p>所以 <code>dsh-llm-retry</code> 的做法是：</p>
+<ol>
+<li>在 <code>agent/request-error</code> 上拿到失败和 provider 的 retry policy；</li>
+<li><strong>先把 <code>llm/retry</code> 事件写进 session log</strong>（durable before wait）；</li>
+<li>等待退避；</li>
+<li>写 <code>llm/retry-started</code>；</li>
+<li>返回 <code>{ kind: 'retry' }</code>，让 loop 在<strong>同一个 open turn 内</strong>重跑失败的 step。</li>
+</ol>
+<p>这样即使进程在退避期间崩溃，日志里也有“曾经安排过一次重试”的记录；恢复后不会出现一个看不见的幽灵重试。</p>
+<h2> 8. 这套分层的取舍</h2>
+<p>好处：</p>
+<ul>
+<li>provider 无关的 session 格式和 UI；</li>
+<li>adapter 可以独立升级、独立测试；</li>
+<li>能力协商（context window、图片、prompt 更新模式）集中在一处；</li>
+<li>失败有稳定的 code，消费者不需要解析字符串。</li>
+</ul>
+<p>代价：</p>
+<ul>
+<li><strong>adapter 的职责很重</strong>：图片缩放、文件上传、认证、重试策略、replay metadata 都在 adapter 里；</li>
+<li><strong>能力模型会漂移</strong>：不同 provider 的“支持”程度不同，<code>normalizeModelInfo</code> 必须严格校验，否则 loop 会按错误的能力做决策；</li>
+<li><strong>一层抽象不够薄</strong>：为了保留可重放性和可观测性，<code>prepareCall</code>、prepared call、terminal finish 都是必要的仪式。</li>
+</ul>
+<h2> 小结</h2>
+<ul>
+<li><code>packages/llm</code> 定义 provider 无关的请求、消息、chunk 词汇；adapter 只做翻译。</li>
+<li><code>prepareCall()</code> 绑定模型能力、默认值、校验结果和 adapter 代际，返回 one-shot 调用。</li>
+<li>所有 adapter 失败都收敛为一个终止 <code>finish</code> chunk，消费者按稳定 code 处理。</li>
+<li>chunk 经 <code>BlockAssembler</code> 变成消息，经 <code>AssistantStreamAccumulator</code> 变成可重放的 timed stream。</li>
+<li>重试放在 agent 的 <code>agent/request-error</code> 上，先落日志再等待，避免流式重放的歧义。</li>
+</ul>
+<p>最后一篇把视角拉到进程外：SDK 的 JSON-RPC、Web 的 Remote/WebSocket，以及浏览器里的 UI 怎样驱动同一个 agent 运行时。</p>
+]]></content>
+    <category term="DeepSeek Harness"/>
+    <published>2026-10-19T00:00:00.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">从 JSON-RPC 到浏览器：DSH 的两张面孔</title>
+    <id>https://sparksding.github.io/deepseek-harness/07-sdk-web.html</id>
+    <link href="https://sparksding.github.io/deepseek-harness/07-sdk-web.html"/>
+    <updated>2026-10-19T08:50:28.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。</p>
+</blockquote>]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。</p>
+</blockquote>
+<p>前面几篇都在进程内部打转。这一篇把视角拉到进程外：一个外部程序怎样驱动 DSH，浏览器又怎样实时看到 agent 的流式输出。</p>
+<p>DSH 有两条对外通道：</p>
+<ul>
+<li><strong>SDK</strong>：新行分隔的 JSON-RPC 2.0，走 stdio，适合 Python/Node 这类外部进程；</li>
+<li><strong>Web</strong>：HTTP + WebSocket，走 Remote/Gateway，适合浏览器 GUI。</li>
+</ul>
+<p>它们看起来完全不同，但底层驱动的是同一个 <code>ctx.agents</code> 和同一份 session log。理解这一点，就能理解为什么 DSH 的 Web UI 不是“另一个 agent 实现”。</p>
+<h2> 1. 一个 runtime，三种驱动方式</h2>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>三种形态共享 <code>dsh-base</code> bundle：模型 adapter、工具、会话、沙箱、审批都在里面。差别只在最外层的入口和传输层。</p>
+<p>这也是 DSH 反复强调 <strong>application launch</strong> 的原因：所有受支持的 Node 应用都必须通过命名 profile 启动，不能自带一个绕过 <code>dsh</code> 的入口。这样 session 目录、模型配置、插件组合才有一致的来源。</p>
+<h2> 2. SDK：新行分隔的 JSON-RPC</h2>
+<p>协议包很小，核心就是一行一个 JSON-RPC 2.0 帧（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/sdk/protocol/src/transport.ts#L1-L8" target="_blank" rel="noopener noreferrer"><code>sdk/protocol/src/transport.ts#L1-L8</code></a>）：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><ul>
+<li>同时有 <code>id</code> 和 <code>method</code>：请求；</li>
+<li>只有 <code>id</code>：响应；</li>
+<li>只有 <code>method</code>：通知。</li>
+</ul>
+<p><code>JsonRpcLineTransport</code> 用 <code>StringDecoder</code> 处理跨 chunk 的 UTF-8，按行切帧，维护 pending map，把响应和请求配对（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/sdk/protocol/src/transport.ts#L62-L110" target="_blank" rel="noopener noreferrer"><code>transport.ts#L62-L110</code></a>）。畸形行会被忽略，handler 抛错会变成 <code>-32603</code> 错误响应。</p>
+<p>服务端是一个 Cordis 插件。<code>handleRequest()</code> 的方法表很短（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/sdk/server/src/server.ts#L343-L375" target="_blank" rel="noopener noreferrer"><code>server.ts#L343-L375</code></a>）：</p>
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>initialize</code></td>
+<td>确定 cwd、provider、model、reasoning effort、max tokens</td>
+</tr>
+<tr>
+<td><code>session/prompt</code></td>
+<td>投递一条用户消息</td>
+</tr>
+<tr>
+<td><code>session/resume</code></td>
+<td>恢复一个持久会话</td>
+</tr>
+<tr>
+<td><code>session/wait</code></td>
+<td>等待当前工作结束</td>
+</tr>
+<tr>
+<td><code>session/working-directory/get</code> / <code>set</code></td>
+<td>读写工作目录</td>
+</tr>
+<tr>
+<td><code>shutdown</code></td>
+<td>关闭 runtime</td>
+</tr>
+</tbody>
+</table>
+<p>服务端内部并不神秘：<code>createSession()</code> 调 <code>ctx.agents.create()</code> 或 <code>ctx.agents.resume()</code>，<code>prompt()</code> 调 <code>agent.followup()</code>（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/sdk/server/src/server.ts#L398-L420" target="_blank" rel="noopener noreferrer"><code>server.ts#L398-L420</code></a>）。真正的 agent 生命周期仍然由 agent-loop 管。</p>
+<p>客户端（TypeScript 或 Python）负责：</p>
+<ol>
+<li>spawn 一个 <code>dsh --profile sdk</code> 子进程；</li>
+<li>通过 stdin 写请求、stdout 读响应/通知；</li>
+<li>把 <code>session/event</code> 通知翻译成回调。</li>
+</ol>
+<p>为什么走进程边界而不是直接 import？因为 SDK 要的是一个<strong>完整 runtime</strong>：它有自己的模型路由、工具配置、会话目录和文件系统视图。进程隔离让“外部程序崩溃”和“agent runtime 崩溃”互不牵连，也让 Python 这类非 Node 调用方有统一入口。</p>
+<h2> 3. Web：浏览器只是另一个 Cordis 树</h2>
+<p><code>dsh web</code> 启动 <code>web</code> profile。这个 profile 在 base 之上插入：</p>
+<ul>
+<li><code>webserver</code>：HTTP 服务和路由；</li>
+<li><code>frontend-static</code>：提供构建好的 SPA；</li>
+<li>一组 <code>dsh.client</code> 行：浏览器端要加载的 UI 插件 roster；</li>
+<li><code>web-runtime</code>：处理启动参数、URL、浏览器打开。</li>
+</ul>
+<p>浏览器页面由 <code>apps/web/src/main.ts</code> 启动（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/apps/web/src/main.ts#L17-L20" target="_blank" rel="noopener noreferrer"><code>main.ts#L17-L20</code></a>）：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><code>AppWebEntry</code> 来自 <code>@deepseek-ai/dsh-client-web</code>。Host 在返回 HTML 时注入 <code>window.__DSH_BOOT__</code>（模块清单、连接信息等），浏览器端据此加载 client 插件，形成<strong>页面内的第二棵 Cordis 树</strong>。</p>
+<p>这棵树和 Host 树通过 Connection 通信，而不是共享内存：</p>
+<ul>
+<li>浏览器插件注册 UI slot、命令、渲染器；</li>
+<li>需要数据时通过 <code>ctx.remote</code> 调 Host 的 Remote 方法；</li>
+<li>Host 的 <code>session/event</code> 通过 <code>$events</code> 流推回页面。</li>
+</ul>
+<h2> 4. 连接：HTTP 负责请求，WebSocket 负责流</h2>
+<p>Connection 层的职责是把“浏览器到 Host”的传输抽象出来（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/client/connection/README.md" target="_blank" rel="noopener noreferrer"><code>client/connection/README.md</code></a>）：</p>
+<ul>
+<li><strong>一元调用</strong>：HTTP POST 到 <code>/api</code>，JSON 请求/响应；二进制结果用 multipart 附件表。</li>
+<li><strong>流</strong>：WebSocket <code>/api/remote.mux</code>，多条逻辑流复用同一个 socket，每条流有自己的 uplink/downlink。</li>
+<li><strong>启动认证</strong>：<code>dsh web</code> 打印带 token 的 URL；根路径用 token 换一个签名 cookie，然后 302 到干净路径。</li>
+<li><strong>请求信任</strong>：Host/Origin 必须匹配 listener 或 <code>trustedHosts</code>；这防的是 DNS rebinding 和跨站请求，不是身份认证。</li>
+</ul>
+<p>认证和信任是两件事，Connection 的 README 写得很明确：Host/Origin 检查失败返回 403，通过检查但没认证返回 401。</p>
+<p><code>$events</code> 是 Gateway 保留的逻辑流（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/api/gateway/src/stream-protocol.ts#L7-L13" target="_blank" rel="noopener noreferrer"><code>gateway/src/stream-protocol.ts#L7-L13</code></a>）：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>Host 在 <code>$events</code> 打开时先发一个 <code>{ type: 'ready', ... }</code>，然后才开始发增量事件。浏览器端必须等到 <code>ready</code> 才发布“已连接”的代际，否则基线读取可能跑在增量监听之前。</p>
+<h2> 5. 一次 Web 提问的完整路径</h2>
+<p>把上面的碎片拼起来：</p>
+<p>关键点：</p>
+<ul>
+<li><strong>prompt 是一元调用</strong>，走 HTTP。它只返回“已接受”，不等待整个 turn 完成。</li>
+<li><strong>事件是流</strong>，走 WebSocket。浏览器订阅的是 <code>session/event</code>，不是轮询。</li>
+<li><strong>实时 chunk 是另一条通道</strong>。<code>assistant/live-chunk</code> 只存在于浏览器端的 journal 里，用于在 <code>assistant/message</code> 落账前显示正在生成的内容；它不会进入持久历史。</li>
+<li><strong>顺序由 seq 保证</strong>。浏览器端的 journal 只发布连续的 <code>replace</code> / <code>prepend</code> / <code>append</code> / <code>settle-assistant</code> 变化；发现缺口就通过历史分页修复。</li>
+<li><strong>重连是常态</strong>。Connection 用 50%–100% 抖动的指数退避重试，重连后重新打开 <code>$events</code>，并用游标补齐。</li>
+</ul>
+<p><code>SessionController.prompt()</code> 本身很薄：校验内容、构造 <code>MessageSource</code>、记录非 owner 的 principal，然后交给 <code>commands.prompt()</code>（<a href="https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/api/session-controller/src/index.ts#L461-L488" target="_blank" rel="noopener noreferrer"><code>session-controller/src/index.ts#L461-L488</code></a>）。它不直接跑 agent，也不解析模型输出。</p>
+<h2> 6. Remote 是什么</h2>
+<p><code>ctx.remote</code> 是浏览器端的类型化 RPC 门面。Host 端用装饰器声明方法：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>构建时生成 descriptor 和 TypeScript 类型，Client 端因此能拿到 <code>ctx.remote.session.prompt(...)</code> 这样的方法，而不需要手写字符串和参数拼装。</p>
+<p>Gateway 在 Host 侧负责：</p>
+<ul>
+<li>解析 endpoint；</li>
+<li>按 Typert 类型校验参数；</li>
+<li>解析 lookup / Context 身份；</li>
+<li>检查 <code>remoteAccess</code> 策略；</li>
+<li>调用业务 Service；</li>
+<li>把结果编码成 JSON 或带附件的 multipart。</li>
+</ul>
+<p>流式方法用 <code>@Remote({ mode: 'stream' })</code>，返回 <code>Iterable</code> / <code>AsyncIterable</code>；Client 端拿到 <code>RemoteStreamHandle</code>，可以迭代 downlink、<code>send()</code> uplink、<code>end()</code> 半关闭、<code>dispose()</code> 取消。</p>
+<h2> 7. 为什么不用一条通道解决所有事</h2>
+<p>理论上可以全部走 WebSocket，或者全部走 HTTP。DSH 选择分开，是因为两者的需求不同：</p>
+<ul>
+<li><strong>一元调用</strong>需要简单、易调试、和普通 HTTP 基础设施兼容；失败重试也简单。</li>
+<li><strong>流</strong>需要双向、背压、取消、复用连接、心跳和重连；这些用 HTTP 做会很别扭。</li>
+<li><strong>认证</strong>只需要在入口做一次：HTTP 换 cookie，WebSocket 复用同一个 cookie。</li>
+<li><strong>事件顺序</strong>由逻辑流和 seq 管理，而不是依赖 TCP 的字节顺序。</li>
+</ul>
+<p>代价是链路长：浏览器 → Connection → Gateway → Service → Agent → Session → 再反向回来。任何一段出问题，表现都可能是“UI 不动了”。所以 DSH 在每一层都留了可观测点：Connection generation、Gateway 的 stream 状态、session seq、agent status。</p>
+<h2> 8. SDK 和 Web 的共性</h2>
+<p>对比一下两条通道：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>SDK</th>
+<th>Web</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>传输</td>
+<td>stdio，新行 JSON-RPC</td>
+<td>HTTP + WebSocket</td>
+</tr>
+<tr>
+<td>请求</td>
+<td><code>session/prompt</code></td>
+<td><code>session.prompt</code> Remote</td>
+</tr>
+<tr>
+<td>事件</td>
+<td><code>session/event</code> 通知</td>
+<td><code>$events</code> 逻辑流</td>
+</tr>
+<tr>
+<td>生命周期</td>
+<td>子进程</td>
+<td>浏览器页面 + Host</td>
+</tr>
+<tr>
+<td>认证</td>
+<td>进程边界 / 启动参数</td>
+<td>token → cookie + Host/Origin</td>
+</tr>
+<tr>
+<td>复用</td>
+<td>同一个 <code>dsh --profile sdk</code></td>
+<td>同一个 <code>dsh --profile web</code></td>
+</tr>
+</tbody>
+</table>
+<p>它们共享的不是传输代码，而是<strong>下面这层语义</strong>：</p>
+<ul>
+<li>会话由 session id 标识；</li>
+<li>prompt 是“投递并返回接受”，不是同步等待结果；</li>
+<li>进度通过事件流观察；</li>
+<li>取消通过 signal / cancel 方法传播；</li>
+<li>历史从 session log 读取，不另存一份。</li>
+</ul>
+<p>这就是为什么 DSH 能同时支持 Python SDK、浏览器 GUI 和 CLI，而不需要为每个前端写一套 agent。</p>
+<h2> 小结</h2>
+<ul>
+<li>SDK 用新行分隔 JSON-RPC，把完整 runtime 放在子进程里；服务端方法很薄，核心仍是 <code>ctx.agents</code>。</li>
+<li>Web 的浏览器端是第二棵 Cordis 树，通过 Connection 与 Host 通信。</li>
+<li>一元调用走 HTTP，流走 <code>/api/remote.mux</code>；<code>$events</code> 承载 session 事件。</li>
+<li>Remote 是类型化 RPC，Gateway 负责校验、鉴权、编码和流生命周期。</li>
+<li>SDK 与 Web 共享会话、prompt、事件、取消这些语义，只是传输和生命周期不同。</li>
+</ul>
+<h2> 写在最后</h2>
+<p>这七篇走完，DSH 的整体形状应该清楚了：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>它不是一个“把 LLM 包一层”的框架，而是一个<strong>把 agent 运行时拆成可组合能力</strong>的系统。读它的源码，最有价值的可能不是记住某个 API，而是看它怎样用事件、effect 和持久日志，把“不确定性极高的模型调用”变成一个可观测、可恢复、可扩展的工程对象。</p>
+<p>如果这套文章对你有帮助，或者你想看某个包的更细拆解（比如 compaction、subagent、workflow、PTC），可以继续在这个专栏里加。</p>
+]]></content>
+    <category term="DeepSeek Harness"/>
+    <published>2026-10-19T00:00:00.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">DeepSeek Harness 源码阅读：从一条命令到一次工具调用</title>
+    <id>https://sparksding.github.io/deepseek-harness/</id>
+    <link href="https://sparksding.github.io/deepseek-harness/"/>
+    <updated>2026-10-19T08:50:28.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。项目还在 developer preview，接口和文件行号都变得很快；文中的链接都钉在这个 commit 上。</p>
+</blockquote>]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。项目还在 developer preview，接口和文件行号都变得很快；文中的链接都钉在这个 commit 上。</p>
+</blockquote>
+<p>我用 dsh 有一段时间了。它能跑工具、能恢复会话、能在浏览器里实时看到模型在做什么，这些能力单独看都不稀奇；真正让我想读源码的是另一个问题：<strong>为什么它敢把模型、工具、会话、甚至 agent 循环本身都做成可替换的插件？</strong></p>
+<p>这套文章是我读源码后的笔记，不追求把每个文件讲一遍，而是沿着一条真实的调用链往下走：一条 <code>dsh web</code> 命令怎样变成一棵插件树，一次用户输入怎样变成 <code>turn/step</code>，模型返回的 tool call 又怎样经过审批、执行、落日志，最后回到浏览器。</p>
+<h2> 这套文章想回答什么</h2>
+<ul>
+<li>启动：<code>dsh web</code> 之后发生了什么？profile、bundle、patch 各是什么？</li>
+<li>组装：为什么说 DSH “没有核心”？Cordis 的 service、event、effect 怎样支撑这一点？</li>
+<li>循环：一个 turn 和 step 的边界在哪里？取消、重试、工具调用怎样收尾？</li>
+<li>工具：一个模型发起的调用，从参数校验到真正执行要过几道关？</li>
+<li>记忆：模型看到的历史存在哪里？为什么换一个进程还能接着聊？</li>
+<li>模型：provider adapter 的边界在哪里？流式 chunk 怎样变成一条消息？</li>
+<li>前后端：浏览器和 SDK 怎样驱动同一个 runtime？</li>
+</ul>
+<h2> 仓库地图</h2>
+<p>DSH 是一个 pnpm monorepo，第一次打开很容易迷路。先记住这几块：</p>
+<table>
+<thead>
+<tr>
+<th>路径</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>apps/cli</code></td>
+<td><code>dsh</code> 命令入口，解析参数后启动一个 profile</td>
+</tr>
+<tr>
+<td><code>apps/web</code></td>
+<td>浏览器端入口，挂载 client 插件</td>
+</tr>
+<tr>
+<td><code>apps/desktop</code></td>
+<td>Electron 外壳，复用同一套 Web 应用</td>
+</tr>
+<tr>
+<td><code>packages/bundle</code></td>
+<td>profile 的“发行包”，本质是一层层 patch</td>
+</tr>
+<tr>
+<td><code>packages/boot</code></td>
+<td>profile 解析、Loader、启动审计</td>
+</tr>
+<tr>
+<td><code>packages/core</code></td>
+<td>agent、agent-loop、session、tools、system-prompt</td>
+</tr>
+<tr>
+<td><code>packages/llm</code></td>
+<td>provider 无关的模型调用协议与各家 adapter</td>
+</tr>
+<tr>
+<td><code>packages/session</code></td>
+<td>会话持久化、格式迁移、查询</td>
+</tr>
+<tr>
+<td><code>packages/sandbox</code></td>
+<td>进程沙箱，约束文件写入范围</td>
+</tr>
+<tr>
+<td><code>packages/sdk</code></td>
+<td>新行分隔 JSON-RPC 的客户端/服务端</td>
+</tr>
+<tr>
+<td><code>packages/api</code> / <code>packages/host</code> / <code>packages/client</code></td>
+<td>Web GUI 的网关、Host、浏览器三侧</td>
+</tr>
+<tr>
+<td><code>vendor/cordis</code></td>
+<td>被 vendor 进来的插件框架</td>
+</tr>
+<tr>
+<td><code>docs/</code></td>
+<td>官方架构文档，读代码前值得先扫一遍</td>
+</tr>
+</tbody>
+</table>
+<h2> 建议的阅读顺序</h2>
+<p>按兴趣选一条线，不必从第一篇顺着读：</p>
+<ul>
+<li><strong>想搞懂 agent 怎么跑</strong>：03 → 04 → 05，再看 02 补 Cordis 基础。</li>
+<li><strong>想写插件或工具</strong>：02 → 04 → 05，最后看 01 理解插件怎样被装进 profile。</li>
+<li><strong>想改前端或做集成</strong>：07 → 03 → 05。</li>
+<li><strong>想部署或排查启动问题</strong>：01 → 07。</li>
+</ul>
+<h2> 先记住五个结论</h2>
+<ol>
+<li><strong>没有特权核心。</strong> 模型 adapter、工具注册表、会话日志、agent 循环都是 Cordis 插件；扩展方式是“在旁边再挂一个插件”，不是改主流程。</li>
+<li><strong>运行中的 dsh 是一棵合成出来的插件树。</strong> profile 选 bundle，bundle 提供 patch，用户 patch 和 <code>--patch</code> 再覆盖；同一行配置按 id 后写获胜。</li>
+<li><strong><code>turn/step</code> 是持久事实，<code>agent/*</code> 是实时控制面。</strong> 前者进 session log，重启后可重放；后者只存在于当前进程，用来观察和拦截正在发生的事。</li>
+<li><strong>模型历史不单独存储。</strong> 它是从 append-only 的 <code>SessionEvent</code> 日志里推导出来的；压缩和替换只是让旧节点不再进入推导结果，并不会删掉日志。</li>
+<li><strong>工具调用不是一次函数调用。</strong> 它是一条固定流水线：pre-execute → guard → execute → post-execute → finalize → result；审批挂在这条链上，沙箱则在 shell/fs 的能力边界生效。</li>
+</ol>
+<h2> 怎么跟读</h2>
+<p>把源码固定在文章对应的 commit，然后善用两个入口：</p>
+<div class="language-bash line-numbers-mode" data-ext="sh"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>文章里的源码链接都指向 GitHub 的固定行号。行号会随上游变化，但函数名和文件名相对稳定；如果链接对不上，按名字在当前分支重新搜一次即可。</p>
+<h2> 系列目录</h2>
+<table>
+<thead>
+<tr>
+<th>篇目</th>
+<th>主题</th>
+<th>一句话</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="/deepseek-harness/01-boot.html" target="blank">01 启动链路</a></td>
+<td>profile / bundle / patch</td>
+<td>一条命令怎样拼出一棵插件树</td>
+</tr>
+<tr>
+<td><a href="/deepseek-harness/02-cordis.html" target="blank">02 Cordis</a></td>
+<td>service / event / effect</td>
+<td>为什么 DSH 没有“核心”</td>
+</tr>
+<tr>
+<td><a href="/deepseek-harness/03-agent-loop.html" target="blank">03 Agent 主循环</a></td>
+<td>turn / step / inbox</td>
+<td>一次输入到一次工具调用的完整路径</td>
+</tr>
+<tr>
+<td><a href="/deepseek-harness/04-tools.html" target="blank">04 工具与权限</a></td>
+<td>注册 / 校验 / 审批 / 执行</td>
+<td>tool call 要过哪四道关</td>
+</tr>
+<tr>
+<td><a href="/deepseek-harness/05-session.html" target="blank">05 会话日志</a></td>
+<td>event sourcing / 持久化</td>
+<td>模型历史是“算”出来的</td>
+</tr>
+<tr>
+<td><a href="/deepseek-harness/06-llm.html" target="blank">06 模型适配层</a></td>
+<td>adapter / stream / chunk</td>
+<td>一次请求怎样变成流</td>
+</tr>
+<tr>
+<td><a href="/deepseek-harness/07-sdk-web.html" target="blank">07 SDK 与 Web</a></td>
+<td>JSON-RPC / Remote / WebSocket</td>
+<td>同一个 runtime 的两种外壳</td>
+</tr>
+</tbody>
+</table>
+<p>如果只读一篇，我建议从 <a href="/deepseek-harness/03-agent-loop.html" target="blank">03 Agent 主循环</a> 开始：它最能解释 DSH 为什么长成现在这样。</p>
+]]></content>
+    <category term="DeepSeek Harness"/>
+    <published>2026-10-19T08:50:28.000Z</published>
+  </entry>
+  <entry>
     <title type="text">工程实践</title>
     <id>https://sparksding.github.io/architecture/</id>
     <link href="https://sparksding.github.io/architecture/"/>
-    <updated>2026-10-19T06:04:36.000Z</updated>
+    <updated>2026-10-19T08:50:28.000Z</updated>
     <summary type="html"><![CDATA[<h1> 工程实践</h1>
 <p>真实项目里的设计取舍、踩坑记录与实现细节。</p>
 <ul>
 <li><a href="/architecture/dsh-peer.html" target="blank">让两个 DeepSeek Harness 跨机器对话：dsh-peer 的后端设计与活动看板</a></li>
+<li><a href="/deepseek-harness/" target="blank">DeepSeek Harness 源码阅读系列</a>：从启动、Cordis、Agent 循环到工具、会话与 Web</li>
 </ul>
 ]]></summary>
     <content type="html"><![CDATA[<h1> 工程实践</h1>
 <p>真实项目里的设计取舍、踩坑记录与实现细节。</p>
 <ul>
 <li><a href="/architecture/dsh-peer.html" target="blank">让两个 DeepSeek Harness 跨机器对话：dsh-peer 的后端设计与活动看板</a></li>
+<li><a href="/deepseek-harness/" target="blank">DeepSeek Harness 源码阅读系列</a>：从启动、Cordis、Agent 循环到工具、会话与 Web</li>
 </ul>
 ]]></content>
     <published>2026-10-19T06:04:36.000Z</published>
