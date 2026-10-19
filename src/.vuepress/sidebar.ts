@@ -22,6 +22,16 @@ export default sidebar([
   },
   
   {
+    text: "工程实践",
+    prefix: "/architecture/",
+    activeMatch: "^/architecture/$",
+    collapsible: true,
+    children: [
+      "dsh-peer.md",
+    ],
+  },
+
+  {
     text: "数据库",
     icon: "box",
     prefix: "/database/",

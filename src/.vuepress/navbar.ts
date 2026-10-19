@@ -23,6 +23,10 @@ export default navbar([
     link: '/distributed-system/'
   },
   {
+    text: '工程实践',
+    link: '/architecture/'
+  },
+  {
     text: '其他',
     icon: 'arrow',
     link: '/others/'
