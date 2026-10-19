@@ -1,5 +1,9 @@
+User-agent: *
+Disallow:
+
+Sitemap: https://sparksding.github.io/sitemap.xml
 
 User-agent:*
 Disallow:
 
-Sitemap: https://sparksding.github.io/blogs/sitemap.xml
+Sitemap: https://sparksding.github.io/sitemap.xml
