@@ -130,7 +130,8 @@ sequenceDiagram
   participant Agent as AgentLoop
   participant Log as Session Log
   UI->>Conn: session.prompt (HTTP POST /api)
-  Conn->>GW: 验证 Peer / Host / Origin
+  Conn->>Conn: admit(request)：Peer / Host / Origin
+  Conn->>GW: invoke /api
   GW->>SC: invoke @Remote('prompt')
   SC->>Agent: followup(message)
   Agent->>Log: turn/start, step/start ...
