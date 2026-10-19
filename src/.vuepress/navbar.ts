@@ -27,6 +27,11 @@ export const zhNavbar = navbar([
     link: '/architecture/'
   },
   {
+    text: 'DSH 源码',
+    icon: 'code',
+    link: '/deepseek-harness/'
+  },
+  {
     text: '其他',
     icon: 'arrow',
     link: '/others/'

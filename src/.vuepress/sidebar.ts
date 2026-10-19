@@ -32,6 +32,24 @@ export const zhSidebar = sidebar([
   },
 
   {
+    text: "DeepSeek Harness 源码",
+    icon: "code",
+    prefix: "/deepseek-harness/",
+    activeMatch: "^/deepseek-harness/$",
+    collapsible: true,
+    children: [
+      "README.md",
+      "01-boot.md",
+      "02-cordis.md",
+      "03-agent-loop.md",
+      "04-tools.md",
+      "05-session.md",
+      "06-llm.md",
+      "07-sdk-web.md",
+    ],
+  },
+
+  {
     text: "数据库",
     icon: "box",
     prefix: "/database/",
