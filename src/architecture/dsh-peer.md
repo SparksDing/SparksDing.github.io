@@ -15,6 +15,8 @@ tag:
 
 代码在 [SparksDing/dsh-peer](https://github.com/SparksDing/dsh-peer)。这篇写清楚它是怎么设计的、交互长什么样，以及前端看板为什么做在"桥"上。
 
+> English version: [Let Two DeepSeek Harness Instances Talk Across Machines](/en/architecture/dsh-peer.html)
+
 <!-- more -->
 
 ## 1. 背景与约束

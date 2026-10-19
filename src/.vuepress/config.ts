@@ -9,6 +9,21 @@ export default defineUserConfig({
   title: "还不知道叫什么名字",
   description: "还不知道叫什么名字的博客",
 
+  // Site locales drive the navbar language switcher. A page without a
+  // translation falls back to the target locale's home instead of a 404.
+  locales: {
+    "/": {
+      lang: "zh-CN",
+      title: "还不知道叫什么名字",
+      description: "还不知道叫什么名字的博客",
+    },
+    "/en/": {
+      lang: "en-US",
+      title: "SparksDing Notes",
+      description: "Notes on backend engineering, distributed systems, and practice.",
+    },
+  },
+
   theme,
 
   // Enable it with pwa

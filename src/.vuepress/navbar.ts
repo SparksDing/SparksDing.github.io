@@ -1,6 +1,6 @@
 import { navbar } from "vuepress-theme-hope";
 
-export default navbar([
+export const zhNavbar = navbar([
   "/",
   {
     text: '前端',
@@ -47,3 +47,14 @@ export default navbar([
     link: '/timeline/'
   },
 ]);
+
+/** English navigation. Only translated sections are listed. */
+export const enNavbar = navbar([
+  "/en/",
+  {
+    text: "Engineering",
+    link: "/en/architecture/",
+  },
+]);
+
+export default zhNavbar;

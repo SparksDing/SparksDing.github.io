@@ -1,6 +1,6 @@
 import { sidebar } from "vuepress-theme-hope";
 
-export default sidebar([
+export const zhSidebar = sidebar([
   {
     text: "前端",
     icon: "react",
@@ -317,3 +317,18 @@ export default sidebar([
     ],
   },
 ]);
+
+/** English sidebar. Only translated sections are listed. */
+export const enSidebar = sidebar([
+  {
+    text: "Engineering",
+    prefix: "/en/architecture/",
+    activeMatch: "^/en/architecture/$",
+    collapsible: false,
+    children: [
+      "dsh-peer.md",
+    ],
+  },
+]);
+
+export default zhSidebar;
