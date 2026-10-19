@@ -3,7 +3,7 @@
   <id>https://sparksding.github.io/</id>
   <title>还不知道叫什么名字</title>
   <subtitle>还不知道叫什么名字的博客</subtitle>
-  <updated>2026-10-19T08:52:14.130Z</updated>
+  <updated>2026-10-19T08:55:21.462Z</updated>
   <generator>vuepress-plugin-feed2</generator>
   <link rel="self" href="https://sparksding.github.io/atom.xml"/>
   <link rel="alternate" href="https://sparksding.github.io/"/>
@@ -812,7 +812,7 @@
     <title type="text">从 JSON-RPC 到浏览器：DSH 的两张面孔</title>
     <id>https://sparksding.github.io/deepseek-harness/07-sdk-web.html</id>
     <link href="https://sparksding.github.io/deepseek-harness/07-sdk-web.html"/>
-    <updated>2026-10-19T08:50:28.000Z</updated>
+    <updated>2026-10-19T08:53:47.000Z</updated>
     <summary type="html"><![CDATA[<blockquote>
 <p>源码基于 <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>deepseek-harness@0.2.1-rc.2</code></a>，对应 commit <a href="https://github.com/deepseek-ai/deepseek-harness/tree/687f282e8625c6b8d11ff58211a90524be2e4317" target="_blank" rel="noopener noreferrer"><code>687f282</code></a>。</p>
 </blockquote>]]></summary>
