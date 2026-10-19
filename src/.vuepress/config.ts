@@ -29,7 +29,10 @@ export default defineUserConfig({
   // Enable it with pwa
   // shouldPrefetch: false,
   head: [
-    ['meta', { name: 'referrer', content: 'no-referrer' }]
+    ['meta', { name: 'referrer', content: 'no-referrer' }],
+    // Default social card image; per-page articles still get their own title/description.
+    ['meta', { property: 'og:image', content: 'https://sparksding.github.io/logo.png' }],
+    ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
   ],
   plugins: [
     searchProPlugin({

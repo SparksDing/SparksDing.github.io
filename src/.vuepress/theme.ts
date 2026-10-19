@@ -9,11 +9,11 @@ export default hopeTheme({
 
   hotReload: true,
 
-  hostname: "https://sparksding.github.io/blogs",
+  hostname: "https://sparksding.github.io",
 
   author: {
     name: "还不知道叫什么名字",
-    url: "https://sparksding.github.io/blogs",
+    url: "https://sparksding.github.io",
   },
 
   // iconPrefix: "icon-",
@@ -26,7 +26,7 @@ export default hopeTheme({
 
   logo: "/logo.jpg",
 
-  repo: "SparksDing/blogs",
+  repo: "SparksDing/SparksDing.github.io",
 
   docsDir: "src",
 
@@ -78,6 +78,9 @@ export default hopeTheme({
 
   plugins: {
     blog: true,
+
+    // RSS/Atom/JSON feeds so aggregators and weekly newsletters can subscribe.
+    feed: {},
 
     autoCatalog: {
       index: true

@@ -1,5 +1,4 @@
-
-User-agent:*
+User-agent: *
 Disallow:
 
-Sitemap: https://sparksding.github.io/blogs/blogs/sitemap.xml
+Sitemap: https://sparksding.github.io/sitemap.xml
