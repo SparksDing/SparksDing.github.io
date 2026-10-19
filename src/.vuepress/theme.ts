@@ -80,7 +80,11 @@ export default hopeTheme({
     blog: true,
 
     // RSS/Atom/JSON feeds so aggregators and weekly newsletters can subscribe.
-    feed: {},
+    feed: {
+      atom: { enable: true },
+      rss: { enable: true },
+      json: { enable: true },
+    },
 
     autoCatalog: {
       index: true
