@@ -70,6 +70,10 @@ tag:
 - **系统补齐**：按一 → 二 → 三 → 四顺序读，每篇末尾的代码和命令尽量跑一遍。
 - **工程排障**：直接看第三篇的调试命令和第四篇的 xrun/性能部分，再回到第二篇确认算法边界。
 
+## 原始长文
+
+完整版（约 5.8 万字，含全部公式、代码与附录）也放在仓库里，方便一次读完或离线保存：[docs/audio-engineering-guide.md](https://github.com/SparksDing/SparksDing.github.io/blob/main/docs/audio-engineering-guide.md)。
+
 ## 说明
 
 - 文中的性能数字是量级参考（以 Cortex-A53/A55、16 kHz 单通道、单核为基准），实测必须以目标板为准。
