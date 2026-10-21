@@ -3,7 +3,7 @@
   <id>https://sparksding.github.io/</id>
   <title>还不知道叫什么名字</title>
   <subtitle>还不知道叫什么名字的博客</subtitle>
-  <updated>2026-10-21T05:54:24.412Z</updated>
+  <updated>2026-10-21T05:58:59.242Z</updated>
   <generator>vuepress-plugin-feed2</generator>
   <link rel="self" href="https://sparksding.github.io/atom.xml"/>
   <link rel="alternate" href="https://sparksding.github.io/"/>
@@ -2294,7 +2294,7 @@
     <title type="text">设备端音频与语音处理：从 pipeline 到 Linux 音频栈</title>
     <id>https://sparksding.github.io/source-study/audio/</id>
     <link href="https://sparksding.github.io/source-study/audio/"/>
-    <updated>2026-10-21T05:53:06.000Z</updated>
+    <updated>2026-10-21T05:57:45.000Z</updated>
     <summary type="html"><![CDATA[<p>这是一份面向设备端音频/语音岗位的系统笔记，也可以当作面试复习材料。它从 PCM 和时钟讲到 ALSA/ASoC，再到 AEC/NS/波束成形和端侧性能调优；每一节都尽量给出公式、代码或可验证的命令。</p>
 ]]></summary>
     <content type="html"><![CDATA[<p>这是一份面向设备端音频/语音岗位的系统笔记，也可以当作面试复习材料。它从 PCM 和时钟讲到 ALSA/ASoC，再到 AEC/NS/波束成形和端侧性能调优；每一节都尽量给出公式、代码或可验证的命令。</p>
@@ -2412,6 +2412,8 @@
 <li><strong>系统补齐</strong>：按一 → 二 → 三 → 四顺序读，每篇末尾的代码和命令尽量跑一遍。</li>
 <li><strong>工程排障</strong>：直接看第三篇的调试命令和第四篇的 xrun/性能部分，再回到第二篇确认算法边界。</li>
 </ul>
+<h2> 原始长文</h2>
+<p>完整版（约 5.8 万字，含全部公式、代码与附录）也放在仓库里，方便一次读完或离线保存：<a href="https://github.com/SparksDing/SparksDing.github.io/blob/main/docs/audio-engineering-guide.md" target="_blank" rel="noopener noreferrer">docs/audio-engineering-guide.md</a>。</p>
 <h2> 说明</h2>
 <ul>
 <li>文中的性能数字是量级参考（以 Cortex-A53/A55、16 kHz 单通道、单核为基准），实测必须以目标板为准。</li>

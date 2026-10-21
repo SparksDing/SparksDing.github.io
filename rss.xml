@@ -6,8 +6,8 @@
     <link>https://sparksding.github.io/</link>
     <description>还不知道叫什么名字的博客</description>
     <language>zh-CN</language>
-    <pubDate>Wed, 21 Oct 2026 05:54:24 GMT</pubDate>
-    <lastBuildDate>Wed, 21 Oct 2026 05:54:24 GMT</lastBuildDate>
+    <pubDate>Wed, 21 Oct 2026 05:58:59 GMT</pubDate>
+    <lastBuildDate>Wed, 21 Oct 2026 05:58:59 GMT</lastBuildDate>
     <generator>vuepress-plugin-feed2</generator>
     <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
     <category>学习源码</category>
@@ -2377,6 +2377,8 @@
 <li><strong>系统补齐</strong>：按一 → 二 → 三 → 四顺序读，每篇末尾的代码和命令尽量跑一遍。</li>
 <li><strong>工程排障</strong>：直接看第三篇的调试命令和第四篇的 xrun/性能部分，再回到第二篇确认算法边界。</li>
 </ul>
+<h2> 原始长文</h2>
+<p>完整版（约 5.8 万字，含全部公式、代码与附录）也放在仓库里，方便一次读完或离线保存：<a href="https://github.com/SparksDing/SparksDing.github.io/blob/main/docs/audio-engineering-guide.md" target="_blank" rel="noopener noreferrer">docs/audio-engineering-guide.md</a>。</p>
 <h2> 说明</h2>
 <ul>
 <li>文中的性能数字是量级参考（以 Cortex-A53/A55、16 kHz 单通道、单核为基准），实测必须以目标板为准。</li>
