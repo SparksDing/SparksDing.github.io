@@ -32,6 +32,11 @@ export const zhNavbar = navbar([
     link: '/deepseek-harness/'
   },
   {
+    text: '学习源码',
+    icon: 'code',
+    link: '/source-study/'
+  },
+  {
     text: '其他',
     icon: 'arrow',
     link: '/others/'

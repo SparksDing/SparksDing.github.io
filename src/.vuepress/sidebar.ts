@@ -50,6 +50,32 @@ export const zhSidebar = sidebar([
   },
 
   {
+    text: "学习源码",
+    icon: "code",
+    prefix: "/source-study/",
+    link: "/source-study/",
+    activeMatch: "^/source-study/",
+    collapsible: true,
+    children: [
+      {
+        text: "音频工程",
+        prefix: "audio/",
+        link: "/source-study/audio/",
+        collapsible: true,
+        children: [
+          "01-digital-audio-pipeline.md",
+          "02-audio-algorithms.md",
+          "03-linux-audio-stack.md",
+          "04-embedded-speech-architecture.md",
+          "05-interview-basics-algorithms.md",
+          "06-interview-linux-tuning-scenarios.md",
+          "07-cheatsheet.md",
+        ],
+      },
+    ],
+  },
+
+  {
     text: "数据库",
     icon: "box",
     prefix: "/database/",
