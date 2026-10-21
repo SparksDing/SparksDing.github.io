@@ -3,10 +3,11 @@
   <id>https://sparksding.github.io/</id>
   <title>还不知道叫什么名字</title>
   <subtitle>还不知道叫什么名字的博客</subtitle>
-  <updated>2026-10-19T08:55:21.462Z</updated>
+  <updated>2026-10-21T05:54:24.412Z</updated>
   <generator>vuepress-plugin-feed2</generator>
   <link rel="self" href="https://sparksding.github.io/atom.xml"/>
   <link rel="alternate" href="https://sparksding.github.io/"/>
+  <category term="学习源码"/>
   <category term="DeepSeek Harness"/>
   <category term="工程实践"/>
   <category term="java"/>
@@ -21,6 +22,2406 @@
   <category term="idea"/>
   <category term="webtools"/>
   <category term="前端"/>
+  <entry>
+    <title type="text">学习源码</title>
+    <id>https://sparksding.github.io/source-study/</id>
+    <link href="https://sparksding.github.io/source-study/"/>
+    <updated>2026-10-21T05:53:06.000Z</updated>
+    <summary type="html"><![CDATA[<h1> 学习源码</h1>
+<p>这里放「从实现角度学习技术」的笔记：不追求 API 大全，重点是把原理、取舍和验证方法讲清楚。</p>
+<h2> 系列</h2>
+<ul>
+<li><a href="/source-study/audio/" target="blank">设备端音频与语音处理：从 pipeline 到 Linux 音频栈</a>（7 篇）</li>
+</ul>
+<p>相关源码阅读：<a href="/deepseek-harness/" target="blank">DeepSeek Harness 源码阅读</a>。</p>
+<p>后续会继续补充 Linux 驱动、音频框架源码和性能分析工具相关的内容。</p>]]></summary>
+    <content type="html"><![CDATA[<h1> 学习源码</h1>
+<p>这里放「从实现角度学习技术」的笔记：不追求 API 大全，重点是把原理、取舍和验证方法讲清楚。</p>
+<h2> 系列</h2>
+<ul>
+<li><a href="/source-study/audio/" target="blank">设备端音频与语音处理：从 pipeline 到 Linux 音频栈</a>（7 篇）</li>
+</ul>
+<p>相关源码阅读：<a href="/deepseek-harness/" target="blank">DeepSeek Harness 源码阅读</a>。</p>
+<p>后续会继续补充 Linux 驱动、音频框架源码和性能分析工具相关的内容。</p>
+]]></content>
+    <published>2026-10-21T05:53:06.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">设备端音频（一）：数字音频基础与 pipeline</title>
+    <id>https://sparksding.github.io/source-study/audio/01-digital-audio-pipeline.html</id>
+    <link href="https://sparksding.github.io/source-study/audio/01-digital-audio-pipeline.html"/>
+    <updated>2026-10-21T05:53:06.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>本文是「设备端音频与语音处理」系列第 1 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
+</blockquote>
+<p>先把「声音怎么变成一串数」讲清楚：采样、量化、电平、PCM 布局、时钟和 buffer。这些概念决定了后面所有算法的输入质量，也决定了延迟和 xrun 的边界。</p>
+<p>这一篇不急着讲算法，而是把 pipeline 的每一环拆开：ADC 之前发生了什么、I2S/TDM 的时钟怎么算、ALSA 的 period 和 buffer 如何影响端到端延迟。</p>
+]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>本文是「设备端音频与语音处理」系列第 1 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
+</blockquote>
+<p>先把「声音怎么变成一串数」讲清楚：采样、量化、电平、PCM 布局、时钟和 buffer。这些概念决定了后面所有算法的输入质量，也决定了延迟和 xrun 的边界。</p>
+<p>这一篇不急着讲算法，而是把 pipeline 的每一环拆开：ADC 之前发生了什么、I2S/TDM 的时钟怎么算、ALSA 的 period 和 buffer 如何影响端到端延迟。</p>
+<!-- more -->
+<h2> 1. 数字音频基础与 pipeline</h2>
+<h3> 1.1 从声波到 PCM</h3>
+<p>完整链路：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>关键结论先给：</p>
+<ul>
+<li><strong>采样定理</strong>：<code>fs &gt; 2 * f_max</code> 才能无混叠重建。44.1 kHz 对应 22.05 kHz 上限，48 kHz 对应 24 kHz。</li>
+<li>44.1 kHz 来自早期 CD（PAL/NTSC 视频设备折中），48 kHz 来自专业/通信设备，16 kHz 是语音识别与 VoIP 的事实标准（8 kHz 窄带电话的上限是 4 kHz，刚好覆盖语音清晰度）。</li>
+<li><strong>抗混叠必须在降采样之前</strong>：模拟低通 + 数字抽取滤波。ΣΔ ADC 用远高于 fs 的过采样（如 64×/128×）把量化噪声推到高频，再用数字滤波器搬走。</li>
+<li><strong>重建（DAC）之后仍需模拟低通</strong>，否则镜像频率会落到可听带内。</li>
+</ul>
+<p>过采样与噪声整形的关系：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>工程含义：ADC 的 SNR/THD+N 指标是在特定 OSR 和抽取滤波器下测的；换滤波器（如从「sharp」切到「low-latency」）会同时改变频响、群延迟和噪声。</p>
+<h3> 1.2 量化、位深与抖动</h3>
+<p>量化把连续幅度映射到 <code>2^N</code> 个台阶。满幅正弦的理论信噪比：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><table>
+<thead>
+<tr>
+<th>位深</th>
+<th>理论 SNR</th>
+<th>实际器件常见</th>
+<th>典型用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>8 bit</td>
+<td>50 dB</td>
+<td>—</td>
+<td>玩具、提示音</td>
+</tr>
+<tr>
+<td>16 bit</td>
+<td>98 dB</td>
+<td>90—100 dB</td>
+<td>消费音频、语音</td>
+</tr>
+<tr>
+<td>24 bit</td>
+<td>146 dB</td>
+<td>105—125 dB</td>
+<td>录音、专业设备</td>
+</tr>
+<tr>
+<td>32 bit float</td>
+<td>约 144 dB（24 bit 尾数）</td>
+<td>受模拟前端限制</td>
+<td>DSP 内部处理</td>
+</tr>
+</tbody>
+</table>
+<p>注意：</p>
+<ul>
+<li>注意区分「1 LSB 电平」和「理论 SNR」：按满刻度峰值归一化，16 bit 的 1 LSB ≈ <strong>-90.3 dBFS</strong>，24 bit ≈ <strong>-138.5 dBFS</strong>；常说的 96/144 dB 是满幅正弦的 SNR（6.02N+1.76），不是 LSB 电平。两者相差约 7.8 dB：正弦信号 RMS 比峰值低 3 dB，而量化噪声 RMS 比 1 LSB 低约 10.8 dB（90.3 + 10.8 - 3.0 ≈ 98.1）。</li>
+<li><strong>实际动态范围由模拟前端决定</strong>。MEMS 麦克风 SNR 通常 60—70 dB，codec ADC 100 dB 左右，所以 24 bit 很多时候只是「不丢精度地搬运」。</li>
+<li><strong>抖动（dither）</strong>：量化误差与信号相关时会产生失真，加入约 1 LSB 的 TPDF 抖动可把失真转为白噪声。噪声整形（noise shaping）再把噪声推向高频。</li>
+<li>设备端很少主动加 dither；但在<strong>位深下变换</strong>（24→16）时应考虑，尤其是音乐播放路径。</li>
+</ul>
+<h3> 1.3 电平体系：dBFS / dBV / dBu / dBSPL</h3>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><table>
+<thead>
+<tr>
+<th>单位</th>
+<th>参考</th>
+<th>0 值</th>
+<th>常见值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>dBFS</td>
+<td>数字满刻度</td>
+<td>0 dBFS = 满幅</td>
+<td>工作电平常留 -20 dBFS 余量</td>
+</tr>
+<tr>
+<td>dBV</td>
+<td>1 V RMS</td>
+<td>0 dBV = 1 V</td>
+<td>消费线电平 -10 dBV ≈ 0.316 V</td>
+</tr>
+<tr>
+<td>dBu</td>
+<td>0.775 V RMS</td>
+<td>0 dBu = 0.775 V</td>
+<td>专业线电平 +4 dBu ≈ 1.228 V</td>
+</tr>
+<tr>
+<td>dBSPL</td>
+<td>20 µPa</td>
+<td>0 dBSPL = 20 µPa</td>
+<td>94 dBSPL = 1 Pa（校准点）</td>
+</tr>
+</tbody>
+</table>
+<p>把声学、模拟、数字串起来（面试常考的换算）：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><ul>
+<li><strong>dBFS 是数字域</strong>，永远 ≤ 0（float 可以 &gt;1，但送 DAC 前会削）。</li>
+<li><strong>Intersample peak</strong>：采样点不超 0 dBFS，重建波形仍可能过载。真峰值（true peak）用 4× 过采样检测，母带/限幅器会处理。</li>
+<li><strong>A 计权 / K 计权</strong>：响度测量。ITU-R BS.1770 用 K 计权 + 门限，输出 LUFS；流媒体目标约 -14 LUFS，广播 -23 LUFS。</li>
+</ul>
+<h3> 1.4 PCM 数据格式与内存布局</h3>
+<p>三个层次别混：</p>
+<ul>
+<li><strong>sample</strong>：一个声道的一个采样值。</li>
+<li><strong>frame</strong>：同一时刻所有声道的 sample 集合。立体声一帧 = 2 个 sample。</li>
+<li><strong>block/period</strong>：一次传输或处理的一组 frame。</li>
+</ul>
+<p><strong>交织（interleaved） vs 平面（planar）</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><ul>
+<li>ALSA <code>SND_PCM_ACCESS_RW_INTERLEAVED</code> / <code>MMAP_INTERLEAVED</code> 是交织；<code>*_NONINTERLEAVED</code> 是平面。</li>
+<li>算法库常要求 planar（如 WebRTC APM 的 <code>float**</code>），跨声道处理（M/S、波束成形）用 planar 更自然；DMA 通常按交织搬运。</li>
+</ul>
+<p>ALSA 常见格式（重点区分 24 bit 的三种存法）：</p>
+<table>
+<thead>
+<tr>
+<th>格式</th>
+<th>含义</th>
+<th>每样本字节</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>S16_LE</code></td>
+<td>有符号 16 bit 小端</td>
+<td>2</td>
+<td>最常用</td>
+</tr>
+<tr>
+<td><code>S24_3LE</code></td>
+<td>24 bit 打包成 3 字节</td>
+<td>3</td>
+<td>USB/专业设备常见，无填充</td>
+</tr>
+<tr>
+<td><code>S24_LE</code></td>
+<td>24 bit 放在 32 bit 低位</td>
+<td>4</td>
+<td>高 8 位为填充/符号扩展</td>
+</tr>
+<tr>
+<td><code>S32_LE</code></td>
+<td>32 bit 整数</td>
+<td>4</td>
+<td>DSP 内部常用</td>
+</tr>
+<tr>
+<td><code>FLOAT_LE</code></td>
+<td>32 bit 浮点</td>
+<td>4</td>
+<td>范围约 ±1.0</td>
+</tr>
+</tbody>
+</table>
+<p>常见的坑：</p>
+<ul>
+<li>24 bit 左对齐/右对齐搞反 → 音量极小或满幅噪声。</li>
+<li>大小端搞反 → 白噪声。</li>
+<li>声道顺序（ALSA 的 <code>FL,FR,FC,LFE,RL,RR</code>）与硬件走线不一致 → 左右反、中置串到左声道。</li>
+<li><strong>frame 数 ≠ 字节数</strong>：<code>bytes = frames * channels * bytes_per_sample</code>。</li>
+</ul>
+<p>WAV 头（44 字节）关键字段：<code>RIFF</code>、<code>WAVE</code>、<code>fmt </code>（format=1 PCM / 3 float / 0xFFFE extensible）、<code>channels</code>、<code>sampleRate</code>、<code>byteRate</code>、<code>blockAlign</code>、<code>bitsPerSample</code>、<code>data</code>。</p>
+<h3> 1.5 时钟、I2S / TDM / PDM 与时钟域</h3>
+<p>数字音频是<strong>同步</strong>系统，时钟就是生命线。</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>例：48 kHz、立体声、32 bit slot：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>I2S vs TDM vs PDM</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>接口</th>
+<th>线</th>
+<th>特点</th>
+<th>典型场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>I2S</td>
+<td>BCLK/LRCLK/DIN/DOUT</td>
+<td>2 声道，MSB 对齐，1 bit 延迟</td>
+<td>codec、功放</td>
+</tr>
+<tr>
+<td>TDM</td>
+<td>BCLK/FS/DIN/DOUT</td>
+<td>多声道时分复用，4/8/16 slot</td>
+<td>多麦阵列、车载</td>
+</tr>
+<tr>
+<td>PDM</td>
+<td>CLK/DATA</td>
+<td>1 bit ΣΔ，需抽取滤波</td>
+<td>数字 MEMS 麦</td>
+</tr>
+<tr>
+<td>SoundWire</td>
+<td>CLK/DATA</td>
+<td>MIPI，多设备、带控制通道</td>
+<td>手机/PC</td>
+</tr>
+<tr>
+<td>USB Audio</td>
+<td>异步包</td>
+<td>1 ms 微帧（高速 125 µs）</td>
+<td>外置声卡</td>
+</tr>
+</tbody>
+</table>
+<p>I2S 的几种常见「变体」（最容易配错的地方）：</p>
+<table>
+<thead>
+<tr>
+<th>格式</th>
+<th>数据对齐</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>I2S（Philips）</td>
+<td>MSB 延迟 1 个 BCLK</td>
+<td>LRCLK 低=左；最常用</td>
+</tr>
+<tr>
+<td>Left-justified</td>
+<td>MSB 与帧同步边沿对齐</td>
+<td>无 1 bit 延迟，帧极性随 codec 约定</td>
+</tr>
+<tr>
+<td>Right-justified</td>
+<td>LSB 对齐到帧尾</td>
+<td>低位对齐，旧 codec 常见</td>
+</tr>
+<tr>
+<td>DSP mode A/B</td>
+<td>帧同步脉冲后跟数据</td>
+<td>脉冲位置/宽度不同，TDM 常用</td>
+</tr>
+</tbody>
+</table>
+<p>TDM 还要约定 slot 数、slot 宽度、起始 slot 和 mask（<code>tx_mask</code>/<code>rx_mask</code>）；slot 宽度大于有效位深时，要确认数据是左对齐还是右对齐。</p>
+<p><strong>时钟抖动（jitter）</strong>：抖动会调制采样时刻，在频谱上表现为底噪/谐波上升。close-in jitter（低频抖动）对音频的影响通常比宽带随机抖动更大，所以 MCLK 的时钟源、电源和走线要认真处理。</p>
+<p><strong>主从关系</strong>：谁产生 BCLK/LRCLK 谁就是 master。常见组合：</p>
+<ul>
+<li>SoC 做 master（codec 做 slave）：时钟由 SoC 的 I2S 控制器分频，软件可控。</li>
+<li>codec 做 master：codec 的 PLL 从 MCLK 产生，SoC 跟随。手机常见。</li>
+<li>两边都用各自晶振 → <strong>两个时钟域</strong>。</li>
+</ul>
+<p><strong>时钟漂移</strong>是设备端最容易被忽略的问题：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>后果：播放 buffer 逐渐耗尽/堆积，最终 xrun；录音与参考信号（AEC）逐渐错位。解决：</p>
+<ol>
+<li>同一时钟域（最彻底）。</li>
+<li><strong>ASRC</strong>（异步采样率转换）吸收 ppm 级差异。</li>
+<li>反馈式重采样：根据 buffer 水位微调速率（PulseAudio/PipeWire 的做法）。</li>
+<li>AEC 中做<strong>延迟估计与跟踪</strong>（GCC-PHAT / 互相关），补偿缓慢漂移。</li>
+</ol>
+<h3> 1.6 端到端 pipeline 与各环节职责</h3>
+<p><strong>采集（capture）</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>播放（playback）</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>各环节的职责与典型坑：</p>
+<table>
+<thead>
+<tr>
+<th>环节</th>
+<th>职责</th>
+<th>常见问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>麦克风</td>
+<td>声电转换</td>
+<td>灵敏度不匹配、AOP 不够导致大声失真、PDM 时钟串扰</td>
+</tr>
+<tr>
+<td>偏置/PGA</td>
+<td>抬升微弱信号</td>
+<td>增益过大削波、增益过小浪费 ADC 动态范围</td>
+</tr>
+<tr>
+<td>ADC</td>
+<td>采样量化</td>
+<td>时钟抖动、抽取滤波器群延迟、DC offset</td>
+</tr>
+<tr>
+<td>DMA/ALSA</td>
+<td>缓冲与同步</td>
+<td>period 过小 xrun、过大延迟高</td>
+</tr>
+<tr>
+<td>用户态前端</td>
+<td>HPF/AEC/NS/AGC/BF</td>
+<td>算法顺序错、帧长不匹配、双讲被抑制</td>
+</tr>
+<tr>
+<td>混音/音量</td>
+<td>多路合并</td>
+<td>直接相加削波、数字音量过低损失位深</td>
+</tr>
+<tr>
+<td>SRC</td>
+<td>速率匹配</td>
+<td>劣质 SRC 引入混叠/镜像、延迟增加</td>
+</tr>
+<tr>
+<td>DAC/功放</td>
+<td>重建放大</td>
+<td>pop/click、上电时序、EMI</td>
+</tr>
+</tbody>
+</table>
+<p><strong>一个常被追问的点：数字音量该放在哪？</strong></p>
+<ul>
+<li>放在<strong>限幅器之前</strong>、混音之后，且尽量在较高位深（float/32 bit）下做。</li>
+<li>数字音量每衰减 6 dB 相当于丢 1 bit 有效精度；衰减 40 dB 后 16 bit 只剩约 9 bit。</li>
+<li>低音量场景优先用<strong>模拟增益/PGA</strong>或功放增益，数字域只做微调。</li>
+<li>淡入淡出用 10—20 ms 的 ramp，避免阶跃产生 click。</li>
+</ul>
+<h3> 1.7 延迟预算与计算方法</h3>
+<p>延迟的定义要先对齐：<strong>声学输入到声学输出</strong>（mouth-to-ear），还是<strong>应用写入到扬声器出声</strong>。面试时先问清楚。</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>ALSA 侧的近似：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>period</th>
+<th>buffer</th>
+<th>纯 ALSA 延迟</th>
+<th>端到端典型</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>语音识别/通话</td>
+<td>10 ms (480@48k)</td>
+<td>30—40 ms</td>
+<td>30—40 ms</td>
+<td>40—80 ms</td>
+</tr>
+<tr>
+<td>普通媒体播放</td>
+<td>20—40 ms</td>
+<td>100—200 ms</td>
+<td>100 ms+</td>
+<td>150—250 ms</td>
+</tr>
+<tr>
+<td>低延迟游戏/监听</td>
+<td>1—5 ms</td>
+<td>2—3 period</td>
+<td>3—10 ms</td>
+<td>10—20 ms</td>
+</tr>
+<tr>
+<td>蓝牙 A2DP</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>100—200 ms</td>
+</tr>
+<tr>
+<td>BLE Audio (LC3)</td>
+<td>7.5/10 ms 帧</td>
+<td>—</td>
+<td>—</td>
+<td>20—50 ms</td>
+</tr>
+</tbody>
+</table>
+<p>经验值：</p>
+<ul>
+<li><strong>每增加一个 period，延迟增加 period_size/fs</strong>；但 period 太小会让 CPU 频繁唤醒、xrun 概率上升。</li>
+<li>算法前瞻（AEC 的参考对齐、限幅器 lookahead、线性相位 FIR）会直接加到总延迟上。</li>
+<li>采样率转换、重采样滤波器的群延迟约为 <code>N/2 / fs</code>（N 为抽头数）。</li>
+<li>声速 343 m/s：1 m 距离约 2.9 ms；会议场景麦克风到说话人 3 m 就是 9 ms，波束成形的延迟补偿要算进去。</li>
+</ul>
+<p><strong>延迟与音质的权衡</strong>：降噪/去混响算法通常需要更长帧（32—64 ms）和更多上下文，延迟换效果；通话链路一般把总预算压在 60—100 ms，语音助手可以放宽到 200 ms 以上（因为不需要实时回放）。</p>
+<hr>
+<p><strong>系列导航</strong>：<a href="/source-study/audio/" target="blank">系列导览</a> · <strong>下一篇</strong>：<a href="/source-study/audio/02-audio-algorithms.html" target="blank">设备端音频（二）：常用音频算法与取舍</a></p>
+]]></content>
+    <category term="学习源码"/>
+    <published>2026-10-21T00:00:00.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">设备端音频（二）：常用音频算法与取舍</title>
+    <id>https://sparksding.github.io/source-study/audio/02-audio-algorithms.html</id>
+    <link href="https://sparksding.github.io/source-study/audio/02-audio-algorithms.html"/>
+    <updated>2026-10-21T05:53:06.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>本文是「设备端音频与语音处理」系列第 2 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
+</blockquote>
+<p>这一篇按「解决什么问题 → 原理 → 参数怎么定 → 代价与坑」梳理设备端最常用的算法：滤波、动态处理、采样率转换、波束成形、AEC、NS、VAD。</p>
+<p>重点不是背公式，而是为什么在端侧选它、什么时候不该选它，以及它会给延迟和 CPU 带来什么。</p>
+]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>本文是「设备端音频与语音处理」系列第 2 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
+</blockquote>
+<p>这一篇按「解决什么问题 → 原理 → 参数怎么定 → 代价与坑」梳理设备端最常用的算法：滤波、动态处理、采样率转换、波束成形、AEC、NS、VAD。</p>
+<p>重点不是背公式，而是为什么在端侧选它、什么时候不该选它，以及它会给延迟和 CPU 带来什么。</p>
+<!-- more -->
+<h2> 2. 常用音频处理算法</h2>
+<p>算法章节的组织方式：<strong>解决什么问题 → 原理与公式 → 参数怎么定 → 代价与坑</strong>。面试时能说清「为什么不用另一个」比背公式更加分。</p>
+<h3> 2.1 增益、混音、削波与限幅</h3>
+<p><strong>增益换算</strong>（必须条件反射）：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>混音</strong>：多路直接相加会溢出。两种做法：</p>
+<ul>
+<li>固定衰减：N 路各乘 <code>1/N</code>（或 <code>1/sqrt(N)</code>），简单但保守。</li>
+<li>统计/自适应：按实际峰值或响度归一化，音质更好但需要 lookahead。</li>
+</ul>
+<p><strong>削波</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>限幅器（limiter）</strong>：当信号超过阈值时快速压到阈值，关键是 <strong>lookahead</strong>——提前看到峰值，用 ramp 把增益降下来，避免瞬态失真。</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>真峰值</strong>：采样点之间可能过载，用 4× 过采样检测（ITU-R BS.1770 / EBU R128），流媒体发布链路必备。</p>
+<p><strong>淡入淡出</strong>：10—20 ms 线性或余弦 ramp，避免阶跃。设备启停、切歌、静音都走 ramp，否则就是 pop。</p>
+<h3> 2.2 滤波器与双二阶（Biquad）</h3>
+<p><strong>FIR vs IIR</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>FIR</th>
+<th>IIR</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>相位</td>
+<td>可严格线性（对称系数）</td>
+<td>非线性，频率相关群延迟</td>
+</tr>
+<tr>
+<td>阶数</td>
+<td>高（几百 tap）</td>
+<td>低（几个 biquad）</td>
+</tr>
+<tr>
+<td>稳定性</td>
+<td>恒稳定</td>
+<td>需检查极点</td>
+</tr>
+<tr>
+<td>计算量</td>
+<td>大</td>
+<td>小</td>
+</tr>
+<tr>
+<td>典型用途</td>
+<td>线性相位 EQ、SRC、波束成形</td>
+<td>实时 EQ、分频、去直流、AEC 预加重</td>
+</tr>
+</tbody>
+</table>
+<p>线性相位 FIR 的群延迟：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>这就是「线性相位好听但延迟高」的来源。</p>
+<p><strong>双二阶（biquad）</strong> 是设备端最常用的 IIR 结构。差分方程：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p><strong>DF2T（转置直接 II 型）</strong> 数值特性最好，每样本只需 2 个状态：</p>
+<div class="language-c line-numbers-mode" data-ext="c"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>RBJ Audio EQ Cookbook</strong> 系数（<code>w0 = 2*pi*f0/fs</code>，<code>alpha = sin(w0)/(2Q)</code>）：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>Q 与带宽的换算（<code>BW</code> 为八度）：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p><strong>低频数值精度</strong>：<code>f0 &lt;&lt; fs</code> 时 <code>cos(w0) → 1</code>，极点紧贴单位圆，float 系数误差会被放大。对策：</p>
+<ul>
+<li>用 <code>double</code> 计算系数，或运行时用 double 状态；</li>
+<li>用 DF2T 而非 DF1；</li>
+<li>极低频用一阶高通/去直流替代；</li>
+<li>必要时用状态空间/耦合形式（coupled form）。</li>
+</ul>
+<p><strong>去直流与语音高通</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>语音链路先去直流/低频（风机噪声、电源 hum、手持振动），再做其他处理；否则 AEC/NS 的估计会被低频污染。</p>
+<p><strong>滤波器设计方法</strong>：</p>
+<ul>
+<li>窗函数法（Hann/Hamming/Blackman/Kaiser）：简单，主瓣/旁瓣折中，Kaiser 可调 β。</li>
+<li>Parks-McClellan（等波纹）：给定通带/阻带指标求最优 FIR。</li>
+<li>模拟原型 + 双线性变换：Butterworth/Chebyshev/Elliptic → biquad。</li>
+<li>工程上直接用 <code>scipy.signal.butter/cheby2/firwin/remez</code> 设计，导出 SOS，避免高阶直接型数值问题。</li>
+</ul>
+<p><strong>常见指标</strong>：通带纹波 &lt; 0.1 dB、阻带衰减 &gt; 60—100 dB、过渡带宽度、群延迟。</p>
+<h3> 2.3 动态处理：压缩、限幅、AGC</h3>
+<p><strong>压缩器</strong>四参数：</p>
+<ul>
+<li><strong>Threshold（T）</strong>：超过才压缩。</li>
+<li><strong>Ratio（R）</strong>：输入增加 R dB，输出只增加 1 dB。</li>
+<li><strong>Attack / Release</strong>：增益变化的快慢。</li>
+<li><strong>Knee</strong>：硬拐点/软拐点。</li>
+</ul>
+<p>增益计算（dB 域）：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>平滑（一阶）：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>实现要点：</p>
+<ul>
+<li>检测器用 <strong>peak</strong>（快速、保守）或 <strong>RMS</strong>（平滑、贴合听感）。</li>
+<li>attack 太短会产生失真（尤其低频），太长会漏掉瞬态；release 太短会“抽吸”（pumping）。</li>
+<li>立体声必须<strong>联动</strong>（link），否则声像会漂移。</li>
+<li>压缩后加 makeup gain，注意别把峰值推过 0 dBFS。</li>
+</ul>
+<p><strong>AGC（自动增益控制）</strong> 与压缩器的区别：AGC 的目标是<strong>把长期电平稳定到目标值</strong>，时间常数更长（几百 ms 到几秒），通常带噪声门/静音检测，避免安静时把噪声拉满。</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>多段 DRC</strong>：把频带分成 2—3 段分别压缩，避免低频能量触发全带压缩（手机扬声器保护常用）。</p>
+<h3> 2.4 采样率转换（SRC / ASRC）</h3>
+<p><strong>为什么需要</strong>：44.1 kHz 内容 → 48 kHz 设备；16 kHz 语音 → 48 kHz 通话链路；两个时钟域之间吸收 ppm 漂移。</p>
+<p><strong>有理数重采样 L/M</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>多相（polyphase）实现</strong>：把滤波器系数按相位分组，每个输出点只算一个相位，复杂度从 O(L) 降到 O(1) 组。</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>sinc 插值</strong>（任意比率）：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p>窗函数截断 sinc，抽头数决定质量；典型 32—128 抽头。</p>
+<p><strong>ASRC</strong>：输入输出时钟独立，用<strong>分数延迟</strong>（Farrow 结构、立方插值）连续调整读取位置。Farrow 立方：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>质量指标</strong>：</p>
+<ul>
+<li>通带纹波（&lt; 0.01—0.1 dB）</li>
+<li>阻带衰减（&gt; 90—120 dB）</li>
+<li>THD+N、混叠/镜像抑制</li>
+<li>群延迟与 CPU</li>
+</ul>
+<p><strong>常用库</strong>：libsamplerate（sinc 最佳质量）、soxr、Speex resampler（定点友好）、ALSA <code>speexrate</code> 插件、zita-resampler。</p>
+<p><strong>坑</strong>：</p>
+<ul>
+<li>劣质线性插值会在高频产生明显混叠，语音听感“发闷/发毛”。</li>
+<li>重采样会改变延迟，AEC 的参考对齐要重新算。</li>
+<li>44.1↔48 反复转换会累积损伤，链路中尽量只转一次。</li>
+</ul>
+<h3> 2.5 麦克风阵列与波束成形</h3>
+<p><strong>远场模型</strong>：平面波到达不同麦克风的时延差。</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>延迟求和（delay-and-sum）</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><ul>
+<li>对目标方向相干增强，对其他方向部分抵消。</li>
+<li>主瓣宽度 ∝ λ/(M d)，阵元越多/间距越大越窄。</li>
+<li><strong>空间混叠</strong>：<code>d &gt; λ/2</code> 会出现栅瓣；16 kHz 的 λ/2 ≈ 10.7 mm，所以阵列间距通常 10—40 mm，需要权衡低频性能。</li>
+</ul>
+<p><strong>分数延迟</strong>：<code>τ_m</code> 不是整数采样，需 sinc 插值或 Farrow 滤波器，否则高频指向性会偏。</p>
+<p><strong>MVDR（最小方差无失真响应）</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><ul>
+<li><code>R</code> 是噪声+干扰协方差，<code>d</code> 是目标方向导向矢量。</li>
+<li>理论最优，但对 <code>R</code> 估计误差敏感，需要<strong>对角加载</strong>（<code>R + εI</code>）和协方差估计的平滑。</li>
+<li>计算量：M×M 矩阵求逆，M=4 时可接受；M=8 以上要考虑降维或子带处理。</li>
+</ul>
+<p><strong>GSC（广义旁瓣抵消）</strong>：固定波束成形 + 阻塞矩阵 + 自适应噪声抵消，把约束优化转成无约束自适应，工程上更常用。</p>
+<p><strong>近场 vs 远场</strong>：小房间/近讲（&lt; 0.5 m）要用球面波模型，时延差之外还有幅度差。</p>
+<p><strong>DOA（波达方向）</strong>：</p>
+<ul>
+<li>GCC-PHAT：对互谱做相位加权，抑制混响，峰值即 TDOA。</li>
+</ul>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><ul>
+<li>SRP-PHAT：对所有方向做相位变换求和，鲁棒但计算量大。</li>
+<li>MUSIC：子空间分解，高分辨率，需要多快拍和阵元数。</li>
+</ul>
+<p><strong>工程约束</strong>：</p>
+<ul>
+<li>阵列几何（线性/环形/三角）决定 360° 覆盖与盲区。</li>
+<li>麦克风一致性（灵敏度/相位）差会导致零陷变浅，产线要校准。</li>
+<li>波束成形会放大自噪声，<strong>低频白噪声增益</strong>要检查。</li>
+<li>输出通常还要接 AEC/NS，顺序见 2.9。</li>
+</ul>
+<h3> 2.6 回声消除（AEC）</h3>
+<p><strong>问题模型</strong>（扬声器→麦克风的声学回声）：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>目标是估计 <code>h</code>，重建回声 <code>ŷ</code>，从 <code>d</code> 中减掉，保留 <code>s</code>。</p>
+<p><strong>NLMS（归一化最小均方）</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><ul>
+<li><code>μ</code> 典型 0.1—0.5；太大会发散，太小收敛慢。</li>
+<li>滤波器长度要覆盖房间混响尾部：<strong>200—500 ms</strong>；16 kHz 下 3200—8000 tap。时域直接卷积 CPU 太高。</li>
+</ul>
+<p><strong>PBFDAF（分块频域自适应滤波）</strong>：把长滤波器分成 B 块，每块 2N 点 FFT，overlap-save 卷积 + 频域 NLMS + 时域约束。每块的计算量约 O(B·N + N log N)，摊到每样本约 O(B + log N)，远低于时域 O(L)，是设备端主流。</p>
+<p><strong>双讲检测（DTD）</strong>：近端说话时自适应必须冻结，否则会“学掉”近端语音。</p>
+<ul>
+<li>Geigel 算法：<code>|d| &gt; max|x| * threshold</code>。</li>
+<li>归一化互相关/相干性。</li>
+<li>双滤波器（foreground/background）比较。</li>
+</ul>
+<p><strong>非线性残留（NLP/RES）</strong>：扬声器、功放、ADC 的非线性使线性 AEC 消不干净，需要残余回声抑制——用估计的回声能量做谱增益，类似 NS。</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>工程要点</strong>：</p>
+<ul>
+<li><strong>参考信号对齐</strong>：参考路径有 buffer/算法延迟，必须先估计并补偿（互相关/GCC-PHAT），否则滤波器长度爆炸。</li>
+<li><strong>时钟漂移</strong>：参考与麦克风不同源时，延迟缓慢变化，需要跟踪（AEC3 的做法）。</li>
+<li><strong>设备形态</strong>：手机/会议 bar/智能音箱的扬声器-麦克风耦合差异极大，滤波器长度和 NLP 强度要按机型调。</li>
+<li><strong>CPU</strong>：16 kHz、200 ms 尾长、PBFDAF 在 A53 上约 5—15% 单核；48 kHz 全带宽 AEC 翻倍以上。</li>
+</ul>
+<p><strong>AEC / ANC / NS 的区别</strong>（容易混）：</p>
+<ul>
+<li><strong>AEC</strong>：消除「自己播放、又被自己麦克风收回来」的回声，必须有参考信号。</li>
+<li><strong>ANC</strong>：耳机/音箱用反相声波抵消环境噪声，分前馈/反馈/混合，不需要参考信号。</li>
+<li><strong>NS</strong>：抑制环境噪声，不针对特定参考；单通道或多通道均可。</li>
+<li>补充指标：<code>ERL</code> 是回声路径本身的衰减，<code>ERLE</code> 是 AEC 在 ERL 基础上额外抑制的量。</li>
+</ul>
+<h3> 2.7 噪声抑制（NS）</h3>
+<p><strong>STFT 域处理</strong>：分帧（20—32 ms）→ 加窗（sqrt-Hann）→ FFT → 估计噪声 → 计算增益 → IFFT → overlap-add。</p>
+<p><strong>谱减法</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>维纳滤波</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>MMSE-LSA</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>噪声估计</strong>：MCRA（最小值控制递归平均）、最小统计量、VAD 辅助。噪声估计不准是 NS 失败的头号原因。</p>
+<p><strong>musical noise（音乐噪声）</strong>：谱减过度导致随机残留音。缓解：</p>
+<ul>
+<li>过减 + 谱下限；</li>
+<li>增益在时间/频率上平滑；</li>
+<li>维纳/MMSE 类软判决；</li>
+<li>深度学习方法直接回归掩码。</li>
+</ul>
+<p><strong>深度学习 NS</strong>：RNNoise（GRU，48 kHz 实时）、DCCRN/CRN、DeepFilterNet。设备端关注：参数量、MACs、定点/量化、内存带宽、是否支持流式。</p>
+<p><strong>评价指标</strong>：</p>
+<ul>
+<li>客观：PESQ（窄带/宽带）、STOI（可懂度）、DNSMOS、SNR 提升。</li>
+<li>任务级：ASR 词错率（WER）、唤醒率/误唤醒。</li>
+<li>注意：PESQ 高不等于 ASR 好，语音增强可能损伤识别线索。</li>
+</ul>
+<h3> 2.8 VAD、去混响、丢包补偿</h3>
+<p><strong>VAD</strong>：</p>
+<ul>
+<li>能量 + 过零率 + 谱特征，最简单。</li>
+<li>GMM（WebRTC VAD，mode 0—3，mode 3 最激进）。</li>
+<li>DNN VAD（更鲁棒，代价是算力）。</li>
+<li><strong>hangover</strong>：语音结束后保持 100—300 ms，避免尾音被切。</li>
+</ul>
+<p><strong>去混响 WPE（Weighted Prediction Error）</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>多通道 WPE 效果最好，计算量在 STFT 域，适合会议/车载。</p>
+<p><strong>丢包补偿（PLC）</strong>：</p>
+<ul>
+<li>波形相似重复（WSOLA）、基音周期复制。</li>
+<li>Opus 内置 PLC，LC3 也有。</li>
+<li>网络抖动用 jitter buffer（20—200 ms）吸收，代价是延迟。</li>
+</ul>
+<h3> 2.9 语音前端链路顺序与工程约束</h3>
+<p>典型顺序（多麦远场）：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p>为什么这么排：</p>
+<ul>
+<li><strong>HPF 最前</strong>：去掉 DC、低频振动、电源 hum，避免污染后续估计。</li>
+<li><strong>BF 在 AEC 前</strong>：先提升目标方向 SNR；AEC 的参考是远端信号，与 BF 无关。也有把 AEC 放 BF 前的方案（每麦独立 AEC），代价是算力 ×M。</li>
+<li><strong>AEC 在 NS 前</strong>：NS 是非线性/时变处理，会破坏回声路径的线性，导致 AEC 失效。</li>
+<li><strong>AGC 在 NS 后</strong>：否则会把噪声一起放大；AGC 也会影响 VAD，所以 VAD 常取 AGC 前或做增益补偿。</li>
+<li><strong>VAD 最后</strong>：给编码器/唤醒词做门控。</li>
+</ul>
+<p>其他约束：</p>
+<ul>
+<li><strong>帧长对齐</strong>：10 ms @16 kHz = 160 点；AEC 常用 64/128 块；STFT 用 256/512 点。链路中要有统一的帧调度器，避免反复重采样。</li>
+<li><strong>采样率统一</strong>：麦克风 48 kHz 采集 → 降采样到 16 kHz 做语音；AEC 若在 48 kHz 做，参考也必须 48 kHz。</li>
+<li><strong>别做两次 AGC/NS</strong>：串接会累积损伤，调参也失控。</li>
+<li><strong>旁路（bypass）能力</strong>：调试和对比必须能逐级旁路，否则无法定位是哪一级变差。</li>
+</ul>
+<h3> 2.10 语音编解码与传输（简述）</h3>
+<table>
+<thead>
+<tr>
+<th>编码</th>
+<th>帧长</th>
+<th>码率</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Opus</td>
+<td>2.5—60 ms</td>
+<td>6—510 kbps</td>
+<td>语音/音乐通用，内置 PLC/FEC，WebRTC 默认</td>
+</tr>
+<tr>
+<td>AAC-LC</td>
+<td>1024 点</td>
+<td>64—256 kbps</td>
+<td>音乐主流</td>
+</tr>
+<tr>
+<td>LC3</td>
+<td>7.5/10 ms</td>
+<td>16—320 kbps</td>
+<td>BLE Audio 强制，低延迟低功耗</td>
+</tr>
+<tr>
+<td>SBC</td>
+<td>—</td>
+<td>200—345 kbps</td>
+<td>经典蓝牙 A2DP，质量一般</td>
+</tr>
+<tr>
+<td>G.711</td>
+<td>20 ms</td>
+<td>64 kbps</td>
+<td>传统电话，PLC 简单</td>
+</tr>
+</tbody>
+</table>
+<p>传输侧关注：<strong>jitter buffer</strong>（抗抖动 vs 延迟）、<strong>FEC/PLC</strong>（丢包）、<strong>拥塞控制</strong>（WebRTC GCC）。蓝牙链路的延迟主要来自编解码 + 重传 + 缓冲，A2DP 100—200 ms，LE Audio 20—50 ms。</p>
+<hr>
+<p><strong>系列导航</strong>：<a href="/source-study/audio/" target="blank">系列导览</a> · <strong>下一篇</strong>：<a href="/source-study/audio/03-linux-audio-stack.html" target="blank">设备端音频（三）：Linux 音频栈</a></p>
+]]></content>
+    <category term="学习源码"/>
+    <published>2026-10-21T00:00:00.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">设备端音频（三）：Linux 音频栈——ASoC、DAPM 与 ALSA 实战</title>
+    <id>https://sparksding.github.io/source-study/audio/03-linux-audio-stack.html</id>
+    <link href="https://sparksding.github.io/source-study/audio/03-linux-audio-stack.html"/>
+    <updated>2026-10-21T05:53:06.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>本文是「设备端音频与语音处理」系列第 3 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
+</blockquote>
+<p>从 SoC 的 I2S 引脚一路讲到 <code>/dev/snd</code>：ASoC 三件套、DAPM、设备树、ALSA 的 period/buffer、asound.conf 和常用调试命令。</p>
+<p>文末有一份可直接编译运行的 ALSA 采集代码，以及一套「没声音」的排查顺序。</p>
+]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>本文是「设备端音频与语音处理」系列第 3 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
+</blockquote>
+<p>从 SoC 的 I2S 引脚一路讲到 <code>/dev/snd</code>：ASoC 三件套、DAPM、设备树、ALSA 的 period/buffer、asound.conf 和常用调试命令。</p>
+<p>文末有一份可直接编译运行的 ALSA 采集代码，以及一套「没声音」的排查顺序。</p>
+<!-- more -->
+<h2> 3. Linux 音频技术栈</h2>
+<p>Linux 音频栈可以按「硬件 → 驱动 → 内核框架 → 用户态库/服务 → 应用」五层理解。面试最容易被追问的是 <strong>ASoC 三件套、DAPM、period/buffer、xrun 恢复</strong>。</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3> 3.1 硬件层：SoC、Codec、功放与 DMA</h3>
+<p>典型智能音箱/会议设备的音频硬件：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>关键硬件参数：</p>
+<ul>
+<li><strong>MEMS 麦克风</strong>：SNR 60—70 dB、AOP 120—130 dBSPL、灵敏度 -38 ~ -26 dBV/Pa、PDM 时钟 1—3 MHz。</li>
+<li><strong>Codec</strong>：ADC/DAC SNR、THD+N、PGA 范围、MCLK 支持范围（通常 256/384/512 fs）、是否内置 DSP。</li>
+<li><strong>功放</strong>：Class-D 效率高但有 EMI；需要看电源抑制比（PSRR）、pop 抑制、过流保护。</li>
+<li><strong>DMA</strong>：分散/聚集（scatter-gather）、循环缓冲、双缓冲半满/全满中断。</li>
+<li><strong>DSP</strong>：HiFi/Hexagon/CEVA 核，用于 offload AEC/NS/唤醒词，节省主核功耗。</li>
+</ul>
+<p>硬件设计对软件的影响：</p>
+<ul>
+<li>MCLK 走线/时钟源不稳 → 采样率偏差、爆音。</li>
+<li>模拟麦偏置与地线布局 → 底噪、hum。</li>
+<li>功放使能 GPIO 时序 → 上电 pop。</li>
+<li>PDM 时钟与 I2S 共用 PLL → 改采样率时可能无 clock。</li>
+</ul>
+<h3> 3.2 驱动层：ASoC 架构</h3>
+<p>ASoC（ALSA System on Chip）把音频驱动拆成三个可复用的部分：</p>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>职责</th>
+<th>典型代码位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Machine</strong></td>
+<td>描述「哪块板子、哪个 CPU DAI 接哪个 Codec DAI」，定义 card、dai_link、widgets/routes、板级 ops</td>
+<td><code>sound/soc/&lt;vendor&gt;/&lt;board&gt;.c</code></td>
+</tr>
+<tr>
+<td><strong>Platform</strong></td>
+<td>SoC 侧的 I2S/TDM 控制器 + DMA（<code>snd_dmaengine_pcm</code>）</td>
+<td><code>sound/soc/&lt;vendor&gt;/&lt;i2s&gt;.c</code></td>
+</tr>
+<tr>
+<td><strong>Codec</strong></td>
+<td>Codec 寄存器、时钟、DAPM、kcontrol、DAI ops</td>
+<td><code>sound/soc/codecs/&lt;codec&gt;.c</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>DAI（Digital Audio Interface）</strong>：CPU DAI 与 Codec DAI 通过 <code>dai_link</code> 连接，双方用 <code>set_fmt</code> 协商格式（I2S/左对齐/DSP、主从、时钟极性）。</p>
+<p><strong>DAPM（Dynamic Audio Power Management）</strong>：</p>
+<ul>
+<li>把 codec 内部和板级路径抽象成 <strong>widget</strong>（mux、mixer、PGA、ADC、DAC、AIF、MIC、SPK、regulator）和 <strong>route</strong>（连接关系）。</li>
+<li>根据当前活跃的 PCM 流，自动上电/下电整条路径，并在顺序上做 pop 抑制。</li>
+<li>调试入口：<code>/sys/kernel/debug/asoc/&lt;card&gt;/dapm</code>。</li>
+</ul>
+<p><strong>Kcontrol</strong>：用户态可见的控件（音量、mux、EQ），用 <code>SOC_SINGLE</code>/<code>SOC_DOUBLE_R</code>/<code>SOC_ENUM</code>/<code>SOC_SINGLE_TLV</code> 定义，<code>amixer</code> 直接操作。</p>
+<p><strong>Runtime PM / regmap</strong>：codec 寄存器通过 regmap 访问，支持 cache；suspend/resume 时恢复。</p>
+<p><strong>Jack 检测</strong>：<code>snd_soc_jack</code> + <code>snd_jack</code>，耳机插入/拔出上报到用户态。</p>
+<p><strong>Probe 顺序</strong>（简化）：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>hw_params 阶段要做的事</strong>：</p>
+<ul>
+<li>根据 rate 设置 codec 的 sysclk/PLL（MCLK = 256/384/512 × fs）。</li>
+<li>设置 I2S 的 slot 宽度、帧格式、主从。</li>
+<li>设置 codec 的采样率、静音/去加重。</li>
+<li>失败要回滚，避免 clock 开着但没流。</li>
+</ul>
+<p><strong>trigger 阶段</strong>：<code>SNDRV_PCM_TRIGGER_START/STOP/PAUSE</code> 控制 DMA 启停，注意 start 前先清 FIFO。</p>
+<p><strong>常见驱动问题</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>可能原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>完全没声音</td>
+<td>DAPM route 缺失、codec 未上电、MCLK 没开、I2S 主从冲突</td>
+</tr>
+<tr>
+<td>声音音调不对</td>
+<td>MCLK/BCLK 比率错、采样率不匹配、TDM slot 宽度错</td>
+</tr>
+<tr>
+<td>只有一边声道</td>
+<td>slot 映射错、声道交换、功放单声道配置</td>
+</tr>
+<tr>
+<td>pop/click</td>
+<td>上电时序、PGA 突变、功放 EN 与 I2S 启动顺序</td>
+</tr>
+<tr>
+<td>录音全是噪声</td>
+<td>格式/端序错、PDM 时钟错、模拟增益过大</td>
+</tr>
+<tr>
+<td>录音很小</td>
+<td>PGA 太小、麦克风偏置未开、单端/差分接错</td>
+</tr>
+</tbody>
+</table>
+<h3> 3.3 设备树与驱动代码骨架</h3>
+<p><strong>设备树（simple-audio-card）</strong>：</p>
+<div class="language-dts line-numbers-mode" data-ext="dts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>要点：</p>
+<ul>
+<li><code>bitclock-master</code> / <code>frame-master</code> 的 phandle 指向 <strong>CPU 或 Codec 的子节点</strong>（上例给 CPU 节点打了 <code>dailink_master</code> 标签），不是指向声卡节点。</li>
+<li><code>format</code> 可选 <code>i2s</code>、<code>right_j</code>、<code>left_j</code>、<code>dsp_a</code>、<code>dsp_b</code>。</li>
+<li>多声道用 <code>dai-tdm-slot-num</code> / <code>dai-tdm-slot-width</code>。</li>
+<li>MCLK 通常由 <code>assigned-clocks</code>/<code>assigned-clock-rates</code> 或 codec 节点里的 <code>clocks</code>/<code>clock-names</code> 指定。</li>
+</ul>
+<p><strong>Codec DAI ops 骨架</strong>：</p>
+<div class="language-c line-numbers-mode" data-ext="c"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>Machine driver 关键结构</strong>：</p>
+<div class="language-c line-numbers-mode" data-ext="c"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>DAPM widget/route 示例</strong>：</p>
+<div class="language-c line-numbers-mode" data-ext="c"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3> 3.4 ALSA 用户态编程</h3>
+<p><strong>对象层级</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>设备节点：<code>/dev/snd/pcmC0D0p</code>（card0 device0 playback）、<code>pcmC0D0c</code>（capture）、<code>controlC0</code>。</p>
+<p><strong>PCM 状态机</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p><strong>period 与 buffer</strong>：</p>
+<ul>
+<li><code>period_size</code>：一次中断/唤醒处理的帧数，决定调度粒度。</li>
+<li><code>buffer_size</code>：环形缓冲总帧数，必须 ≥ period × 2。</li>
+<li><code>latency ≈ period_size / fs</code>（单周期）或 <code>buffer_size / fs</code>（整缓冲）。</li>
+</ul>
+<p><strong>hw_params（硬件约束） vs sw_params（软件行为）</strong>：</p>
+<ul>
+<li>hw_params：格式、声道、采样率、period、buffer、access。</li>
+<li>sw_params：start_threshold、stop_threshold、avail_min、silence_threshold、timestamp 模式。</li>
+</ul>
+<p><strong>完整录音示例（RW 模式，阻塞读）</strong>：</p>
+<div class="language-c line-numbers-mode" data-ext="c"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>播放要点</strong>：</p>
+<ul>
+<li><code>snd_pcm_writei</code> 返回实际写入帧数，可能小于请求，要循环补齐。</li>
+<li>首次写入前 <code>snd_pcm_prepare</code>；start_threshold 控制何时真正启动 DMA。</li>
+<li>结束时 <code>snd_pcm_drain</code>（播完）或 <code>snd_pcm_drop</code>（立即停）。</li>
+</ul>
+<p><strong>xrun</strong>：</p>
+<ul>
+<li>capture overrun：应用读得太慢，环形缓冲被覆盖。</li>
+<li>playback underrun：应用喂得太慢，DMA 没数据。</li>
+<li>处理：<code>snd_pcm_prepare</code> 重新准备，或 <code>snd_pcm_recover(pcm, err, silent)</code>。</li>
+<li>排查：看 <code>/proc/asound/card0/pcm0p/sub0/status</code> 的 <code>state: XRUN</code>、<code>avail</code>、<code>hw_ptr</code>。</li>
+</ul>
+<p><strong>mmap 模式</strong>（低延迟/零拷贝）：</p>
+<div class="language-c line-numbers-mode" data-ext="c"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>时间戳</strong>：<code>snd_pcm_status_get_trigger_tstamp()</code> 获取启动时刻，<code>snd_pcm_status_get_htstamp()</code> 获取硬件时间，用于 A/V 同步和漂移测量。</p>
+<p><strong>控制接口</strong>：</p>
+<div class="language-c line-numbers-mode" data-ext="c"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3> 3.5 asound.conf、插件与 UCM</h3>
+<p>ALSA 插件层让「一个硬件」变成「多个逻辑设备」：</p>
+<table>
+<thead>
+<tr>
+<th>插件</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>plug</code></td>
+<td>自动格式/采样率/声道转换</td>
+</tr>
+<tr>
+<td><code>hw</code></td>
+<td>直接访问硬件，无转换</td>
+</tr>
+<tr>
+<td><code>dmix</code></td>
+<td>多进程共享播放</td>
+</tr>
+<tr>
+<td><code>dsnoop</code></td>
+<td>多进程共享录音</td>
+</tr>
+<tr>
+<td><code>softvol</code></td>
+<td>软件音量</td>
+</tr>
+<tr>
+<td><code>equal</code></td>
+<td>软件 EQ</td>
+</tr>
+<tr>
+<td><code>ladspa</code></td>
+<td>挂 LADSPA 效果器</td>
+</tr>
+<tr>
+<td><code>speexrate</code></td>
+<td>重采样</td>
+</tr>
+<tr>
+<td><code>file</code></td>
+<td>写入文件（调试）</td>
+</tr>
+<tr>
+<td><code>null</code></td>
+<td>空设备（测试）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>典型 <code>~/.asoundrc</code> / <code>/etc/asound.conf</code></strong>：</p>
+<div class="language-conf line-numbers-mode" data-ext="conf"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>注意：</p>
+<ul>
+<li><code>dmix</code> 要求 slave 的 format/rate/channels 固定，且硬件支持。</li>
+<li>多进程共享时 <code>ipc_key</code> 不能冲突。</li>
+<li><code>plug</code> 会自动做 SRC，但质量取决于 <code>speexrate</code> 等插件，低延迟场景尽量让应用直接输出硬件支持的格式。</li>
+</ul>
+<p><strong>UCM（Use Case Manager）</strong>：<code>/usr/share/alsa/ucm2/</code>，按 verb/device 描述「听音乐、打电话、录音」的完整 mixer 配置，PulseAudio/PipeWire 会调用。手机上比裸 asound.conf 更常见。</p>
+<p><strong>设备管理</strong>还包括：card 热插拔（udev）、<code>alsactl</code> 保存/恢复混音状态、PulseAudio 的 card profile（<code>pactl set-card-profile</code>）、PipeWire 的 device route（<code>wpctl</code>），以及多声卡场景下的默认设备选择（<code>pactl set-default-sink</code> / <code>wpctl set-default</code>）。</p>
+<h3> 3.6 上层音频服务：PulseAudio / PipeWire / GStreamer</h3>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>定位</th>
+<th>常用命令</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>PulseAudio</strong></td>
+<td>桌面/嵌入式声音服务器，混音、路由、网络音频</td>
+<td><code>pactl info</code>、<code>pactl list short sinks</code>、<code>pacmd list-sinks</code></td>
+</tr>
+<tr>
+<td><strong>PipeWire</strong></td>
+<td>新一代多媒体图（音频+视频），低延迟，兼容 PulseAudio/JACK</td>
+<td><code>pw-top</code>、<code>pw-cli</code>、<code>wpctl status</code>、<code>wpctl set-default</code></td>
+</tr>
+<tr>
+<td><strong>GStreamer</strong></td>
+<td>流媒体管线框架</td>
+<td><code>gst-launch-1.0 alsasrc ! audioconvert ! alsasink</code></td>
+</tr>
+<tr>
+<td><strong>tinyalsa</strong></td>
+<td>Android/嵌入式轻量库，直接操作 <code>/dev/snd</code></td>
+<td><code>tinyplay</code>、<code>tinycap</code>、<code>tinymix</code>、<code>tinypcminfo</code></td>
+</tr>
+<tr>
+<td><strong>Android AudioFlinger</strong></td>
+<td>Android 音频 HAL 之上，FastMixer/offload</td>
+<td><code>dumpsys media.audio_flinger</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>什么时候绕过声音服务器</strong>：</p>
+<ul>
+<li>需要极低延迟（&lt; 10 ms）或精确时钟：直接 <code>hw:</code> + mmap。</li>
+<li>需要独占设备/专业音频：ALSA 直连或 JACK。</li>
+<li>语音前端：通常直接读 ALSA，避免 PulseAudio 的额外缓冲和重采样。</li>
+</ul>
+<p><strong>PipeWire 的 quantum</strong>：默认 1024 帧（48 kHz 下约 21 ms），低延迟可调到 256/128；<code>pw-metadata -n settings 0 clock.quantum 256</code>。</p>
+<h3> 3.7 调试命令与 /proc 速查</h3>
+<p><strong>设备与能力</strong>：</p>
+<div class="language-bash line-numbers-mode" data-ext="sh"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>当前参数与状态</strong>：</p>
+<div class="language-bash line-numbers-mode" data-ext="sh"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><code>status</code> 里重点看：<code>state</code>（RUNNING/XRUN）、<code>owner_pid</code>、<code>hw_ptr</code>/<code>appl_ptr</code>、<code>avail</code>。</p>
+<p><strong>播放/录音自检</strong>：</p>
+<div class="language-bash line-numbers-mode" data-ext="sh"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>Mixer</strong>：</p>
+<div class="language-bash line-numbers-mode" data-ext="sh"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>驱动/设备树</strong>：</p>
+<div class="language-bash line-numbers-mode" data-ext="sh"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>跟踪系统调用/延迟</strong>：</p>
+<div class="language-bash line-numbers-mode" data-ext="sh"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>典型排查顺序</strong>（没声音）：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><hr>
+<p><strong>系列导航</strong>：<a href="/source-study/audio/" target="blank">系列导览</a> · <strong>下一篇</strong>：<a href="/source-study/audio/04-embedded-speech-architecture.html" target="blank">设备端音频（四）：端侧语音架构与性能调优</a></p>
+]]></content>
+    <category term="学习源码"/>
+    <published>2026-10-21T00:00:00.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">设备端音频（四）：端侧语音架构与性能调优</title>
+    <id>https://sparksding.github.io/source-study/audio/04-embedded-speech-architecture.html</id>
+    <link href="https://sparksding.github.io/source-study/audio/04-embedded-speech-architecture.html"/>
+    <updated>2026-10-21T05:53:06.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>本文是「设备端音频与语音处理」系列第 4 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
+</blockquote>
+<p>把语音前端放进真实设备：VoIP、远场助手、会议、媒体播放四类场景的分层与数据流；实时线程、无锁缓冲、perf/ftrace/cyclictest、NEON/定点、功耗与量产问题。</p>
+<p>这一篇更偏工程：怎么让算法在目标板上稳定跑住，而不只是「能跑」。</p>
+]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>本文是「设备端音频与语音处理」系列第 4 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
+</blockquote>
+<p>把语音前端放进真实设备：VoIP、远场助手、会议、媒体播放四类场景的分层与数据流；实时线程、无锁缓冲、perf/ftrace/cyclictest、NEON/定点、功耗与量产问题。</p>
+<p>这一篇更偏工程：怎么让算法在目标板上稳定跑住，而不只是「能跑」。</p>
+<!-- more -->
+<h2> 4. 端侧语音处理架构与性能调优</h2>
+<h3> 4.1 分层架构与典型数据流</h3>
+<p><strong>分层</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>场景一：VoIP 通话（双向、强实时）</strong></p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><ul>
+<li>AEC 是核心，参考信号必须与扬声器实际播放严格对齐。</li>
+<li>延迟预算 60—150 ms；蓝牙耳机链路更紧。</li>
+<li>双讲不能断字，NLP 要保守。</li>
+</ul>
+<p><strong>场景二：远场语音助手（唤醒 + ASR）</strong></p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><ul>
+<li>唤醒词常驻低功耗 DSP，主核休眠。</li>
+<li>唤醒后开主链路，波束指向说话人。</li>
+<li>延迟可放宽（100—300 ms），但误唤醒率和功耗是硬指标。</li>
+</ul>
+<p><strong>场景三：录音/会议</strong></p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><ul>
+<li>更看重音质与可懂度，可用更复杂的算法和更长帧。</li>
+<li>需要处理削波、风噪、桌子振动。</li>
+</ul>
+<p><strong>场景四：媒体播放</strong></p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><ul>
+<li>重点是音质、pop、SRC 质量、多路混音不削波。</li>
+</ul>
+<p><strong>always-on 唤醒词架构</strong>：</p>
+<ul>
+<li>一级 KWS 跑在 DSP/低功耗核，只做「疑似唤醒」检测，功耗 &lt; 1—2 mW。</li>
+<li>二级 KWS 在主核复核，降低误唤醒。</li>
+<li>麦克风常开，需要低噪声 LDO、PDM 时钟门控、DMA 小缓冲。</li>
+</ul>
+<p><strong>异构划分</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>任务</th>
+<th>适合的核</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AEC/NS/BF</td>
+<td>DSP（HiFi/Hexagon/CEVA）</td>
+<td>定点高效、实时性好、省主核</td>
+</tr>
+<tr>
+<td>唤醒词</td>
+<td>低功耗 DSP/NPU</td>
+<td>常开、极低功耗</td>
+</tr>
+<tr>
+<td>大模型 NS/ASR</td>
+<td>主核 + NPU</td>
+<td>算力需求大</td>
+</tr>
+<tr>
+<td>控制/路由</td>
+<td>主核</td>
+<td>逻辑复杂</td>
+</tr>
+</tbody>
+</table>
+<h3> 4.2 实时性设计</h3>
+<p>音频线程是<strong>软实时</strong>：错过一个 period 就是 xrun（可听见的爆音/卡顿）。目标是<strong>最坏情况延迟（WCET）可控</strong>，而不是平均吞吐。</p>
+<p><strong>线程与调度</strong>：</p>
+<div class="language-c line-numbers-mode" data-ext="c"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><ul>
+<li>音频线程优先级通常 <strong>10—30</strong>；IRQ 线程 50—90；不要用 99（会饿死内核线程）。</li>
+<li><code>SCHED_FIFO</code> 无时间片，同级按 FIFO；确保不会死循环。</li>
+<li>避免优先级反转：用带优先级继承的 mutex（<code>PTHREAD_PRIO_INHERIT</code>），或干脆无锁。</li>
+<li>关键线程绑核（<code>sched_setaffinity</code>），避免迁移带来的 cache 抖动。</li>
+</ul>
+<p><strong>回调里绝对不能做的事</strong>：</p>
+<ul>
+<li><code>malloc/free</code>、<code>new/delete</code>（可能拿锁、触发 page fault）。</li>
+<li><code>printf/fprintf</code>、syslog（I/O 阻塞）。</li>
+<li>文件/网络 I/O、<code>sleep</code>。</li>
+<li>大块 <code>memcpy</code>（可接受，但要评估）。</li>
+<li>加锁等待（尤其与低优先级线程共享）。</li>
+<li>浮点异常/除零（提前检查）。</li>
+</ul>
+<p><strong>无锁环形缓冲（单生产者单消费者）</strong>：</p>
+<div class="language-c line-numbers-mode" data-ext="c"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>要点：读写指针单调递增、用掩码取模、acquire/release 保证可见性、容量取 2 的幂。</p>
+<p><strong>PREEMPT_RT</strong>：</p>
+<ul>
+<li>把大部分内核临界区变成可抢占，降低最坏调度延迟。</li>
+<li>中断线程化（<code>devm_request_threaded_irq</code>），音频 IRQ 线程可设优先级。</li>
+<li>关中断/关抢占区间仍会造成抖动，需要 <code>cyclictest</code> 验证。</li>
+<li>不是万能药：驱动里的长临界区、DMA 回调、电源管理仍可能引入 ms 级抖动。</li>
+</ul>
+<p><strong>其他</strong>：</p>
+<ul>
+<li><code>CONFIG_HZ</code>、<code>NO_HZ_FULL</code>、CPU isolation（<code>isolcpus</code>）减少干扰。</li>
+<li>关闭 CPU 调频的激进策略（<code>performance</code> governor）可降低抖动，代价是功耗。</li>
+<li>避免在音频线程里触发频率切换/热插拔。</li>
+</ul>
+<h3> 4.3 性能剖析工具链</h3>
+<table>
+<thead>
+<tr>
+<th>目的</th>
+<th>工具</th>
+<th>关键用法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CPU 热点</td>
+<td><code>perf</code></td>
+<td><code>perf top -p &lt;pid&gt;</code>、<code>perf record -g</code>、<code>perf report</code></td>
+</tr>
+<tr>
+<td>调度延迟</td>
+<td><code>perf sched</code></td>
+<td><code>perf sched latency</code>、<code>perf sched record</code></td>
+</tr>
+<tr>
+<td>函数耗时</td>
+<td><code>ftrace</code></td>
+<td><code>function_graph</code>、<code>set_ftrace_filter=snd_pcm_*</code></td>
+</tr>
+<tr>
+<td>系统级跟踪</td>
+<td><code>trace-cmd</code></td>
+<td><code>trace-cmd record -p function_graph -g 'snd_*'</code></td>
+</tr>
+<tr>
+<td>实时性</td>
+<td><code>cyclictest</code></td>
+<td><code>cyclictest -t -p80 -n -i1000 -l10000</code></td>
+</tr>
+<tr>
+<td>硬件延迟</td>
+<td><code>hwlatdetect</code></td>
+<td>检测 SMI/固件引起的停顿</td>
+</tr>
+<tr>
+<td>中断分布</td>
+<td><code>/proc/interrupts</code></td>
+<td>看 I2S/DMA 中断是否集中在一个核</td>
+</tr>
+<tr>
+<td>功耗</td>
+<td><code>powertop</code>、<code>turbostat</code></td>
+<td>看 C-state、频率、唤醒源</td>
+</tr>
+<tr>
+<td>内存</td>
+<td><code>valgrind --tool=massif</code>、<code>heaptrack</code></td>
+<td>找实时线程里的分配</td>
+</tr>
+<tr>
+<td>系统调用</td>
+<td><code>strace -T</code></td>
+<td>看 ioctl/read 的耗时</td>
+</tr>
+</tbody>
+</table>
+<p><strong>perf 示例</strong>：</p>
+<div class="language-bash line-numbers-mode" data-ext="sh"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>ftrace 示例</strong>：</p>
+<div class="language-bash line-numbers-mode" data-ext="sh"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>cyclictest 示例</strong>：</p>
+<div class="language-bash line-numbers-mode" data-ext="sh"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><h3> 4.4 优化手段与顺序</h3>
+<p><strong>先测量，再优化</strong>。推荐顺序：</p>
+<ol>
+<li><strong>算法层</strong>：降采样、缩短滤波器、减少 FFT 点数、用子带/稀疏、模型量化/剪枝。</li>
+<li><strong>数据层</strong>：定点化、减少内存带宽、合并循环、避免重复计算。</li>
+<li><strong>指令层</strong>：NEON/SIMD、查表、SIMD 友好的数据布局（planar）。</li>
+<li><strong>系统层</strong>：绑核、优先级、DMA 零拷贝、缓存友好、减少唤醒。</li>
+<li><strong>硬件层</strong>：DSP offload、NPU、更大 cache、独立 SRAM。</li>
+</ol>
+<p><strong>NEON 示例（FIR 单点内积，卷积的内层循环）</strong>：</p>
+<div class="language-c line-numbers-mode" data-ext="c"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>注意：AArch64 可用 <code>vaddvq_f32</code> 一次求和；AArch32 用上面的成对加法。实时 FIR 通常用「块处理 + 多相」进一步减少开销。</p>
+<p><strong>定点 Q15 示例</strong>：</p>
+<div class="language-c line-numbers-mode" data-ext="c"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>定点 vs 浮点</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>定点（Q15/Q31）</th>
+<th>浮点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>功耗/面积</td>
+<td>低</td>
+<td>高</td>
+</tr>
+<tr>
+<td>动态范围</td>
+<td>需精心定标，易溢出/底噪</td>
+<td>大，开发快</td>
+</tr>
+<tr>
+<td>确定性</td>
+<td>完全确定</td>
+<td>受舍入/denormal 影响</td>
+</tr>
+<tr>
+<td>SIMD</td>
+<td>NEON 整数乘加高效</td>
+<td>NEON 浮点也快（A55+）</td>
+</tr>
+<tr>
+<td>适用</td>
+<td>DSP、低端 MCU、量产</td>
+<td>主核、算法原型</td>
+</tr>
+</tbody>
+</table>
+<p><strong>denormal 处理</strong>：极小浮点数会让 CPU 进入慢路径。启用 flush-to-zero：</p>
+<div class="language-c line-numbers-mode" data-ext="c"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>或给滤波器状态注入极小的抖动噪声，避免长时间静音后状态衰减到 denormal 区间。</p>
+<p><strong>CPU 预算参考</strong>（16 kHz 单通道，Cortex-A53 单核，量级）：</p>
+<table>
+<thead>
+<tr>
+<th>模块</th>
+<th>CPU 占用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>HPF / DC</td>
+<td>&lt; 0.5%</td>
+</tr>
+<tr>
+<td>4 麦波束成形</td>
+<td>5—15%</td>
+</tr>
+<tr>
+<td>AEC（200 ms 尾长，PBFDAF）</td>
+<td>5—15%</td>
+</tr>
+<tr>
+<td>NS（STFT + 传统）</td>
+<td>3—8%</td>
+</tr>
+<tr>
+<td>NS（轻量 DNN）</td>
+<td>10—30%</td>
+</tr>
+<tr>
+<td>AGC + VAD</td>
+<td>1—3%</td>
+</tr>
+<tr>
+<td>Opus 编码（16 kHz）</td>
+<td>2—5%</td>
+</tr>
+</tbody>
+</table>
+<p>合计 20—50% 单核；48 kHz 全带宽通常再翻 1.5—2 倍。<strong>留 30% 余量</strong>给突发和系统抖动。</p>
+<p><strong>功耗优化</strong>：</p>
+<ul>
+<li>常开 KWS 放 DSP，主核深度睡眠。</li>
+<li>批处理/合并唤醒，减少 CPU 进出 C-state。</li>
+<li>动态降采样（安静时 8 kHz，检测到语音切 16 kHz）。</li>
+<li>关闭未用麦克风/通道。</li>
+<li>选择低功耗 codec 与 Class-D 功放，注意静态电流。</li>
+<li>温度高时降频会引发 xrun，要留余量。</li>
+</ul>
+<h3> 4.5 测试、验证与量产问题</h3>
+<p><strong>延迟测试</strong>：</p>
+<ul>
+<li>环回（loopback）：播放脉冲 → 录音，测峰值间隔，减去已知 buffer。</li>
+<li><code>latmus</code>（alsa-tools）测 ALSA 往返。</li>
+<li>示波器/逻辑分析仪测 BCLK/LRCLK 与模拟输出的相位。</li>
+<li>端到端：人工嘴 + 人工耳，测 mouth-to-ear。</li>
+</ul>
+<p><strong>音质测试</strong>：</p>
+<ul>
+<li>THD+N、SNR、频响、串扰、最大输出、底噪。</li>
+<li>设备：Audio Precision、QA401/QA402、REW + 测量麦。</li>
+<li>播放扫频/白噪声，录音后分析。</li>
+</ul>
+<p><strong>时钟与漂移</strong>：</p>
+<ul>
+<li>长时间录 1 kHz 正弦，测相位漂移；或对比两个时钟域的样本数。</li>
+<li>验证 ASRC/反馈重采样是否收敛。</li>
+</ul>
+<p><strong>稳定性</strong>：</p>
+<ul>
+<li>72 小时 soak，统计 xrun 次数、内存增长、句柄泄漏。</li>
+<li>反复插拔耳机、切换采样率、suspend/resume。</li>
+<li>低电量/高温/高负载下的 xrun。</li>
+</ul>
+<p><strong>语音质量</strong>：</p>
+<ul>
+<li>PESQ/STOI/DNSMOS；真实场景录音回放。</li>
+<li>ASR WER、唤醒率/误唤醒率（每天次数）。</li>
+<li>双讲、回声、风噪、键盘声、音乐噪声。</li>
+</ul>
+<p><strong>量产常见问题</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>根因</th>
+<th>对策</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>个别机器有底噪</td>
+<td>麦克风一致性/PCB 地线</td>
+<td>产线校准、筛选</td>
+</tr>
+<tr>
+<td>大声时破音</td>
+<td>AOP 不足/增益过大</td>
+<td>降 PGA、加限幅、选高 AOP 麦</td>
+</tr>
+<tr>
+<td>回声投诉</td>
+<td>AEC 参考延迟/非线性</td>
+<td>校准延迟、加强 NLP、结构隔振</td>
+</tr>
+<tr>
+<td>啸叫</td>
+<td>扬声器-麦克风耦合</td>
+<td>降低增益、移频/陷波、结构优化</td>
+</tr>
+<tr>
+<td>偶发卡顿</td>
+<td>调度/中断/电源管理</td>
+<td>RT 优先级、绑核、关调频</td>
+</tr>
+<tr>
+<td>蓝牙延迟大</td>
+<td>编解码/重传/缓冲</td>
+<td>LE Audio、调小 buffer、编解码选型</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<p><strong>系列导航</strong>：<a href="/source-study/audio/" target="blank">系列导览</a> · <strong>下一篇</strong>：<a href="/source-study/audio/05-interview-basics-algorithms.html" target="blank">设备端音频（五）：面试问答 30 题（基础与算法）</a></p>
+]]></content>
+    <category term="学习源码"/>
+    <published>2026-10-21T00:00:00.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">设备端音频（五）：面试问答 30 题（基础与算法）</title>
+    <id>https://sparksding.github.io/source-study/audio/05-interview-basics-algorithms.html</id>
+    <link href="https://sparksding.github.io/source-study/audio/05-interview-basics-algorithms.html"/>
+    <updated>2026-10-21T05:53:06.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>本文是「设备端音频与语音处理」系列第 5 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
+</blockquote>
+<p>前 30 题覆盖数字音频基础与常用算法，适合面试前快速自测。答案给的是骨架：结论、原理、取舍、工程例子。</p>
+]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>本文是「设备端音频与语音处理」系列第 5 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
+</blockquote>
+<p>前 30 题覆盖数字音频基础与常用算法，适合面试前快速自测。答案给的是骨架：结论、原理、取舍、工程例子。</p>
+<!-- more -->
+<h2> 面试问答（上）：基础与算法</h2>
+<h3> 5.1 基础（Q1—Q12）</h3>
+<p><strong>Q1 ★ 采样定理是什么？为什么常见 44.1k / 48k / 16k？</strong></p>
+<ul>
+<li><code>fs &gt; 2 f_max</code> 才能无混叠恢复；44.1k 覆盖 22.05k（人耳上限约 20k），来自 CD 时代的历史折中；48k 是专业/通信设备主流，且与 24/25/30/60 fps 视频帧率成整数关系；16k 是宽带语音标准（8k 带宽），覆盖语音清晰度所需频段。</li>
+<li>关键是<strong>降采样前必须抗混叠</strong>，重建后必须模拟低通。</li>
+</ul>
+<p><strong>Q2 ★ 量化噪声与位深的关系？</strong></p>
+<ul>
+<li>满幅正弦：<code>SNR = 6.02N + 1.76 dB</code>；16 bit ≈ 98 dB，24 bit ≈ 146 dB。</li>
+<li>实际受模拟前端限制：MEMS 麦 60—70 dB，codec 100 dB 左右。</li>
+<li><code>ENOB = (SINAD - 1.76)/6.02</code>，用来判断「有效位数」。</li>
+</ul>
+<p><strong>Q3 dither 有什么用？设备端什么时候需要？</strong></p>
+<ul>
+<li>量化误差与信号相关会产生谐波失真；加约 1 LSB 的 TPDF 抖动把失真变成白噪声，听感更自然。</li>
+<li>位深下变换（24→16）、低电平淡出时最有意义；设备端录音/播放通常不做，除非做母带或高动态范围处理。</li>
+</ul>
+<p><strong>Q4 ★ dBFS、dBV、dBu、dBSPL 的区别？0 dBFS 对应多少 SPL？</strong></p>
+<ul>
+<li>dBFS 是数字满刻度；dBV 参考 1 V，dBu 参考 0.775 V，dBSPL 参考 20 µPa。</li>
+<li>换算链：麦克风灵敏度（如 -38 dBV/Pa）→ 94 dBSPL 对应 -38 dBV → 若 ADC 满刻度 1 Vrms，则 94 dBSPL 对应 -38 dBFS → 0 dBFS 约 132 dBSPL。</li>
+<li>实际还要加 PGA 增益，且不同频率灵敏度不同（频响曲线）。</li>
+</ul>
+<p><strong>Q5 sample、frame、block 有什么区别？planar 和 interleaved 呢？</strong></p>
+<ul>
+<li>sample 是单声道单点；frame 是所有声道同一时刻的集合；block/period 是一批 frame。</li>
+<li>interleaved 按帧交错存（LRLR），planar 按声道分开存（LLL、RRR）。</li>
+<li>DMA/ALSA 多为 interleaved，算法库多用 planar；转换有开销，链路设计时尽量少转。</li>
+</ul>
+<p><strong>Q6 ★ S24_3LE、S24_LE、S32_LE 有什么区别？</strong></p>
+<ul>
+<li><code>S24_3LE</code>：24 bit 打包成 3 字节，无填充；USB/专业设备常见。</li>
+<li><code>S24_LE</code>：24 bit 放在 32 bit 字的低 24 位，高 8 位填充；ALSA 内部常见。</li>
+<li><code>S32_LE</code>：完整 32 bit 整数。</li>
+<li>搞错会导致音量异常或噪声；还要注意左/右对齐和端序。</li>
+</ul>
+<p><strong>Q7 ★ MCLK、BCLK、LRCLK 的关系？I2S 时序关键点？</strong></p>
+<ul>
+<li><code>MCLK = 256/384/512 × fs</code>（codec 内部 ΣΔ 用）；<code>BCLK = fs × slot_bits × slots</code>；<code>LRCLK = fs</code>。</li>
+<li>I2S：LRCLK 低=左声道、高=右声道；数据 MSB 在 LRCLK 跳变后延迟 1 个 BCLK；MSB-first。</li>
+<li>主从必须明确，两边同时驱动 BCLK 会冲突。</li>
+</ul>
+<p><strong>Q8 I2S、TDM、PDM 怎么选？</strong></p>
+<ul>
+<li>I2S：2 声道、简单、codec/功放最常用。</li>
+<li>TDM：多声道（4/8/16 slot），多麦阵列、车载；需要约定 slot 宽度和帧同步模式（DSP A/B）。</li>
+<li>PDM：数字 MEMS 麦，1 bit 高采样率，需抽取滤波；布线简单但时钟易串扰。</li>
+<li>SoundWire 用于手机/PC 多设备；USB Audio 用于外置声卡。</li>
+</ul>
+<p><strong>Q9 ★ 两个时钟域为什么会漂移？怎么解决？</strong></p>
+<ul>
+<li>晶振精度（±10—50 ppm）、温漂、PLL 抖动导致 fs 不完全相等。</li>
+<li>50 ppm @48k ≈ 2.4 sample/s，10 分钟差约 30 ms。</li>
+<li>解决：同源时钟、ASRC、反馈重采样（看 buffer 水位调速）、AEC 延迟跟踪。</li>
+</ul>
+<p><strong>Q10 ★ 端到端音频延迟由哪些部分组成？怎么测？</strong></p>
+<ul>
+<li>ADC 群延迟 + period/buffer + 用户态调度 + 算法 lookahead + 混音/SRC + DAC + 功放/声学。</li>
+<li>测法：环回脉冲（播放→录音）、<code>latmus</code>、示波器看 BCLK 与模拟输出、人工嘴/人工耳。</li>
+<li>先明确测的是「应用写入到出声」还是「声学入口到声学出口」。</li>
+</ul>
+<p><strong>Q11 ★ 什么是 xrun？怎么恢复和定位？</strong></p>
+<ul>
+<li>playback underrun：应用喂数据太慢，DMA 没数据；capture overrun：应用读太慢，缓冲被覆盖。ALSA 返回 <code>-EPIPE</code>。</li>
+<li>恢复：<code>snd_pcm_prepare</code> 重新准备，或 <code>snd_pcm_recover</code>。</li>
+<li>定位：<code>/proc/asound/.../status</code> 看 state/avail；<code>strace -T</code> 看 read/ioctl 耗时；<code>cyclictest</code>/<code>perf sched</code> 看调度延迟；检查 period 是否过小、是否有 page fault/malloc。</li>
+</ul>
+<p><strong>Q12 ★ 为什么语音前端常用 16 kHz？8k 和 48k 呢？</strong></p>
+<ul>
+<li>8k 采样只有 4k 带宽，丢失辅音高频，电话音质；16k 提供 8k 带宽，是宽带语音/Opus/ASR 的主流；48k 用于音乐、全带宽通话、AEC 高保真参考。</li>
+<li>16k 的算力/模型输入更小，且与多数 ASR 前端匹配；需要音乐或超声场景才上 48k。</li>
+</ul>
+<h3> 5.2 算法（Q13—Q30）</h3>
+<p><strong>Q13 ★ FIR 和 IIR 怎么选？</strong></p>
+<ul>
+<li>FIR：可线性相位、恒稳定，但阶数高、延迟大、算力大；适合线性相位 EQ、SRC、波束成形。</li>
+<li>IIR：阶数低、算力小、延迟低，但相位非线性、需稳定性检查；适合实时 EQ、分频、去直流。</li>
+<li>设备端语音链路通常 IIR 做基础滤波，FIR 做需要线性相位/精确频响的部分。</li>
+</ul>
+<p><strong>Q14 ★ 双二阶滤波器低频为什么容易出问题？怎么解决？</strong></p>
+<ul>
+<li><code>f0 &lt;&lt; fs</code> 时 <code>cos(w0) → 1</code>，极点紧贴单位圆且彼此靠近，float 系数量化误差被放大，导致频响偏移甚至不稳定。</li>
+<li>对策：double 系数/状态、DF2T 结构、一阶节替代、coupled form、必要时改用状态空间/耦合形式，或换用双精度。</li>
+</ul>
+<p><strong>Q15 线性相位 FIR 的代价是什么？</strong></p>
+<ul>
+<li>群延迟 <code>(N-1)/2</code> 个采样，48k 下 1024 tap ≈ 10.7 ms；还有 pre-ringing，瞬态会被“抹开”。</li>
+<li>对延迟敏感的通话/监听链路通常不用长线性相位 FIR。</li>
+</ul>
+<p><strong>Q16 ★ 采样率转换有哪些方法？怎么评价质量？</strong></p>
+<ul>
+<li>零阶保持/线性插值：便宜但混叠/镜像严重。</li>
+<li>多相 FIR：主流，质量与抽头数相关。</li>
+<li>窗函数 sinc：任意比率，质量好。</li>
+<li>ASRC/Farrow：吸收时钟漂移。</li>
+<li>指标：通带纹波、阻带衰减、THD+N、群延迟、CPU；库：libsamplerate、soxr、Speex、zita。</li>
+</ul>
+<p><strong>Q17 ★ 压缩器的参数怎么调？</strong></p>
+<ul>
+<li>Threshold 决定何时开始压；Ratio 决定压多少；Attack 太快会失真、太慢漏瞬态；Release 太短会抽吸。</li>
+<li>语音常用：T = -18 ~ -12 dBFS，R=2:1—4:1，attack 5—20 ms，release 100—300 ms，软拐点。</li>
+<li>立体声要联动，压缩后加 makeup，注意峰值不过 0 dBFS。</li>
+</ul>
+<p><strong>Q18 限幅器为什么需要 lookahead？</strong></p>
+<ul>
+<li>峰值是突发的，没有前瞻就只能等超了再降，已经削了；lookahead 提前看到峰值，用 ramp 平滑降增益。</li>
+<li>代价是延迟（常见 1—5 ms）；真峰值检测还要 4× 过采样。</li>
+</ul>
+<p><strong>Q19 ★ AEC 的原理？NLMS 怎么更新？</strong></p>
+<ul>
+<li>模型：<code>d = s + h*x + v</code>；用自适应滤波器估计 <code>h</code>，重建回声并从麦克风信号减掉。</li>
+<li>NLMS：<code>w += μ e x / (||x||² + δ)</code>，<code>e = d - w^T x</code>。</li>
+<li>长尾用 PBFDAF（分块频域）降复杂度；滤波器长度覆盖 200—500 ms 混响。</li>
+</ul>
+<p><strong>Q20 ★ 双讲检测怎么做？为什么必须做？</strong></p>
+<ul>
+<li>近端说话时，自适应会把近端语音也“学”进回声路径，导致近端被抵消。</li>
+<li>方法：Geigel（<code>|d| &gt; max|x| * th</code>）、归一化互相关、双滤波器（foreground/background）比较、相干性。</li>
+<li>检测到双讲就冻结/放慢自适应，只保留 NLP 的保守抑制。</li>
+</ul>
+<p><strong>Q21 线性 AEC 之后为什么还需要 NLP？</strong></p>
+<ul>
+<li>扬声器、功放、ADC 的非线性，以及时钟漂移、路径变化，使线性滤波只能消 20—40 dB。</li>
+<li>NLP/RES 用估计的回声能量做谱增益，进一步压残余；但要避免损伤近端语音（双讲时保守）。</li>
+</ul>
+<p><strong>Q22 ★ 谱减法为什么会产生 musical noise？怎么缓解？</strong></p>
+<ul>
+<li>噪声估计有方差，谱减后在随机频点留下孤立残留，听起来像“水声/鸟叫”。</li>
+<li>缓解：过减因子 + 谱下限、时间/频率平滑、维纳/MMSE 软增益、噪声估计改进（MCRA）、深度学习方法。</li>
+</ul>
+<p><strong>Q23 维纳滤波和 MMSE-LSA 的区别？</strong></p>
+<ul>
+<li>维纳：<code>G = ξ/(1+ξ)</code>，基于均方误差，计算简单。</li>
+<li>MMSE-LSA：最小化对数谱误差，<code>G = ξ/(1+ξ) exp(0.5 ∫_v^∞ e^-t/t dt)</code>，语音失真更小，但需要更准的先验 SNR。</li>
+<li>工程上常用判决引导（decision-directed）估计先验 SNR，兼顾两者。</li>
+</ul>
+<p><strong>Q24 ★ 深度降噪和传统降噪相比，端侧部署要注意什么？</strong></p>
+<ul>
+<li>优势：对非平稳噪声、低 SNR 效果更好；可联合 AEC/去混响。</li>
+<li>约束：MACs/参数量、内存带宽、定点/量化精度、流式因果性、帧长与延迟、模型更新与多平台移植。</li>
+<li>常见做法：传统算法打底 + 轻量 DNN 做掩码/后处理，或 DSP 上跑小模型。</li>
+</ul>
+<p><strong>Q25 ★ delay-and-sum 和 MVDR 的区别？</strong></p>
+<ul>
+<li>DAS：按方向补偿时延后平均，鲁棒、无需统计信息，但旁瓣高、抑制有限。</li>
+<li>MVDR：<code>w = R^-1 d/(d^H R^-1 d)</code>，在目标方向无失真约束下最小化输出功率，抑制强干扰更好；但需要准确的 <code>R</code> 和导向矢量，要对角加载。</li>
+<li>工程上 GSC 更常用：固定波束 + 阻塞矩阵 + 自适应抵消。</li>
+</ul>
+<p><strong>Q26 DOA 怎么估计？GCC-PHAT 的原理？</strong></p>
+<ul>
+<li>两麦互谱做相位变换：<code>R12(τ)=IFFT(X1 X2*/|X1 X2*|)</code>，峰值对应 TDOA，再换算角度。</li>
+<li>PHAT 加权抑制混响和幅度差异，低 SNR 下更鲁棒；多麦可用 SRP-PHAT 或 MUSIC。</li>
+<li>注意空间混叠（间距 &gt; λ/2）和阵列校准。</li>
+</ul>
+<p><strong>Q27 ★ AGC 应该放在链路哪个位置？为什么？</strong></p>
+<ul>
+<li>一般在 NS 之后、编码/VAD 之前；放太前会把噪声一起放大，放太后可能让编码器过载。</li>
+<li>不能和 codec 的模拟 AGC 重复；VAD 要在 AGC 前或做增益补偿，避免判决被增益影响。</li>
+<li>目标电平：语音 -26 ~ -18 dBFS，通话约 -20 dBFS。</li>
+</ul>
+<p><strong>Q28 VAD 有哪些实现？hangover 的作用？</strong></p>
+<ul>
+<li>能量+过零率、谱特征、GMM（WebRTC VAD）、DNN。</li>
+<li>hangover 在语音结束后保持 100—300 ms，防止尾音/弱音被切；太长会增加延迟和功耗。</li>
+</ul>
+<p><strong>Q29 ★ 语音前端链路的推荐顺序？为什么？</strong></p>
+<ul>
+<li><code>HPF → BF → AEC → NS → AGC → VAD</code>。</li>
+<li>HPF 先去 DC/低频；BF 提升目标方向 SNR；AEC 必须在非线性 NS 之前，否则回声路径被破坏；AGC 在 NS 后避免放大噪声；VAD 最后做门控。</li>
+<li>每级要能 bypass，方便定位问题。</li>
+</ul>
+<p><strong>Q30 去混响和丢包补偿分别怎么做？</strong></p>
+<ul>
+<li>去混响：WPE 用线性预测估计晚期混响并从当前帧减掉，多通道效果更好；也可用谱域/深度方法。</li>
+<li>PLC：波形相似重复（WSOLA）、基音周期复制；Opus/LC3 内置 PLC；网络侧靠 jitter buffer + FEC。</li>
+</ul>
+<hr>
+<p><strong>系列导航</strong>：<a href="/source-study/audio/" target="blank">系列导览</a> · <strong>下一篇</strong>：<a href="/source-study/audio/06-interview-linux-tuning-scenarios.html" target="blank">设备端音频（六）：面试问答 30 题（Linux、调优与场景）</a></p>
+]]></content>
+    <category term="学习源码"/>
+    <published>2026-10-21T00:00:00.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">设备端音频（六）：面试问答 30 题（Linux、调优与场景）</title>
+    <id>https://sparksding.github.io/source-study/audio/06-interview-linux-tuning-scenarios.html</id>
+    <link href="https://sparksding.github.io/source-study/audio/06-interview-linux-tuning-scenarios.html"/>
+    <updated>2026-10-21T05:53:06.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>本文是「设备端音频与语音处理」系列第 6 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
+</blockquote>
+<p>后 30 题覆盖 Linux/驱动/ALSA、端侧架构与性能调优，以及 8 道场景设计题。建议先自己答一遍，再看要点。</p>
+]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>本文是「设备端音频与语音处理」系列第 6 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
+</blockquote>
+<p>后 30 题覆盖 Linux/驱动/ALSA、端侧架构与性能调优，以及 8 道场景设计题。建议先自己答一遍，再看要点。</p>
+<!-- more -->
+<h2> 面试问答（下）：Linux、调优与场景</h2>
+<h3> 5.3 Linux、驱动与 ALSA（Q31—Q42）</h3>
+<p><strong>Q31 ★ ASoC 的三大组件是什么？各自职责？</strong></p>
+<ul>
+<li><strong>Machine</strong>：板级描述，定义 card、dai_link（CPU DAI ↔ Codec DAI）、widgets/routes、板级 ops。</li>
+<li><strong>Platform</strong>：SoC 侧 I2S/TDM 控制器 + DMA（<code>snd_dmaengine_pcm</code>），负责数据搬运和时钟。</li>
+<li><strong>Codec</strong>：codec 寄存器、时钟、DAPM、kcontrol、DAI ops。</li>
+<li>三者通过 <code>snd_soc_card</code> 绑定，注册后出现 <code>/dev/snd/pcmCxDx*</code>。</li>
+</ul>
+<p><strong>Q32 ★ DAPM 解决什么问题？</strong></p>
+<ul>
+<li>动态管理 codec 内部和板级音频路径的电源，按当前活跃流自动上电/下电。</li>
+<li>用 widget（mux/mixer/PGA/ADC/DAC/AIF/MIC/SPK/regulator）和 route 描述连接图。</li>
+<li>好处：省电、避免 pop（按顺序上下电）、减少手动寄存器配置。</li>
+<li>调试：<code>/sys/kernel/debug/asoc/&lt;card&gt;/dapm</code>。</li>
+</ul>
+<p><strong>Q33 声卡注册/probe 的大致流程？</strong></p>
+<ul>
+<li>platform 侧注册 CPU DAI 和 DMA；codec 侧 i2c probe 注册 component/DAI/kcontrol/DAPM；machine probe 绑定 dai_link 并 <code>snd_soc_register_card()</code>。</li>
+<li>之后 <code>hw_params</code> 设时钟/格式，<code>trigger</code> 启停 DMA，<code>pointer</code> 报位置。</li>
+<li>任何一步失败都要检查 clock、regulator、pinctrl、DAPM route。</li>
+</ul>
+<p><strong>Q34 ★ pop/click 声一般怎么产生？怎么解？</strong></p>
+<ul>
+<li>上电/下电时序：PGA、功放 EN、静音引脚动作顺序不对。</li>
+<li>直流突变：音量/增益阶跃、codec 电源跳变。</li>
+<li>采样率切换、I2S 启停时 BCLK 突然断。</li>
+<li>对策：DAPM 顺序、软静音 ramp、功放延时使能、clock 先稳再开流、输出端加 RC/去 pop 电路。</li>
+</ul>
+<p><strong>Q35 ★ period 和 buffer 怎么选？</strong></p>
+<ul>
+<li><code>buffer_size = period_size × periods</code>，通常 2—4 个 period。</li>
+<li>period 小 → 延迟低、唤醒频繁、xrun 风险高；period 大 → 延迟高、抗抖动好。</li>
+<li>语音：10 ms period、30—40 ms buffer；低延迟：1—5 ms period、2—3 period；媒体：20—40 ms period。</li>
+<li>必须用 <code>_near</code> 拿实际值，硬件可能不支持任意大小。</li>
+</ul>
+<p><strong>Q36 hw_params 和 sw_params 的区别？</strong></p>
+<ul>
+<li>hw_params：硬件能力约束——格式、声道、采样率、period、buffer、access。</li>
+<li>sw_params：软件行为——start_threshold、stop_threshold、avail_min、silence、timestamp 模式。</li>
+<li>hw_params 必须在 prepare 前设置；sw_params 可在 prepare 后调整。</li>
+</ul>
+<p><strong>Q37 mmap 和 read/write 模式的区别？</strong></p>
+<ul>
+<li>RW：内核/用户态拷贝，简单，但多一次 memcpy 和唤醒。</li>
+<li>mmap：用户态直接读写 DMA 缓冲，零拷贝、延迟低，但要自己管理 <code>appl_ptr/hw_ptr</code>、<code>mmap_begin/commit</code>。</li>
+<li>低延迟/专业音频用 mmap；普通应用 RW 足够。</li>
+</ul>
+<p><strong>Q38 ★ 写一个低延迟录音程序要注意什么？</strong></p>
+<ul>
+<li>直接用 <code>hw:</code> 设备，避免 plug/PulseAudio 的额外缓冲。</li>
+<li>选硬件支持的格式/采样率，period 1—5 ms，buffer 2—3 period。</li>
+<li><code>SCHED_FIFO</code> + <code>mlockall</code>，回调里不 malloc/printf。</li>
+<li>用 <code>poll</code>/<code>snd_pcm_wait</code> 等数据，处理 <code>-EPIPE</code>/<code>-ESTRPIPE</code>。</li>
+<li>用 mmap 减少拷贝；时间戳用 <code>snd_pcm_status_get_htstamp</code>。</li>
+</ul>
+<p><strong>Q39 ★ asound.conf 里 plug、dmix、dsnoop 各起什么作用？</strong></p>
+<ul>
+<li><code>plug</code>：自动做格式/采样率/声道转换，让不匹配的应用也能播。</li>
+<li><code>dmix</code>：多进程共享一个播放设备，软件混音。</li>
+<li><code>dsnoop</code>：多进程共享录音设备，各自读取。</li>
+<li>代价是额外缓冲/重采样，低延迟场景应绕开。</li>
+</ul>
+<p><strong>Q40 PulseAudio、PipeWire、ALSA 是什么关系？</strong></p>
+<ul>
+<li>ALSA 是内核接口 + 用户态库，直接管硬件。</li>
+<li>PulseAudio/PipeWire 是声音服务器，跑在 ALSA 之上，做混音、路由、设备切换、网络音频。</li>
+<li>PipeWire 是新架构，兼容 PulseAudio/JACK，延迟更低；嵌入式语音前端常直接走 ALSA/tinyalsa。</li>
+</ul>
+<p><strong>Q41 ★ 设备没声音，怎么排查？</strong></p>
+<ul>
+<li><code>/proc/asound/cards</code> 看声卡是否注册；<code>dmesg</code> 看 probe/clock 错误。</li>
+<li><code>amixer</code> 看 volume/mute/DAPM 路径；<code>aplay -D hw:0,0</code> 绕过插件。</li>
+<li>看 <code>/proc/.../hw_params</code> 是否 RUNNING；示波器看 BCLK/LRCLK/DATA。</li>
+<li>检查 MCLK、codec 供电、功放 EN、I2C 通信、pinmux。</li>
+</ul>
+<p><strong>Q42 怎么查看当前采样率、格式和 xrun？</strong></p>
+<ul>
+<li><code>cat /proc/asound/card0/pcm0p/sub0/hw_params</code> 看 rate/format/period/buffer。</li>
+<li><code>cat .../status</code> 看 state（RUNNING/XRUN）、hw_ptr/appl_ptr、avail。</li>
+<li><code>aplay -v</code> 打印实际参数；<code>snd_pcm_dump()</code> 打印软件配置。</li>
+<li><code>dmesg</code> 里常有 underrun/overrun 计数。</li>
+</ul>
+<h3> 5.4 架构与性能调优（Q43—Q52）</h3>
+<p><strong>Q43 ★ 端侧语音处理怎么分层？</strong></p>
+<ul>
+<li>应用（ASR/通话/唤醒）→ 语音前端（HPF/BF/AEC/NS/AGC/VAD）→ 音频服务（ALSA/tinyalsa）→ 内核（ASoC/DMA/clock）→ 硬件（SoC/codec/功放/麦克风）。</li>
+<li>前端可跑在主核、DSP 或 NPU；按实时性、算力、功耗划分。</li>
+<li>接口要统一帧格式/采样率/时间戳，避免反复转换。</li>
+</ul>
+<p><strong>Q44 ★ 实时音频线程怎么配置？</strong></p>
+<ul>
+<li><code>SCHED_FIFO</code>，优先级 10—30（IRQ 线程更高，不要用 99）。</li>
+<li><code>mlockall</code> 锁内存，预分配所有缓冲，避免 page fault。</li>
+<li>绑核、关闭频繁调频、避免与低优先级线程共享锁。</li>
+<li>用无锁队列/信号量通知，不用条件变量长时间阻塞。</li>
+</ul>
+<p><strong>Q45 ★ 为什么音频回调里不能 malloc？</strong></p>
+<ul>
+<li>malloc 可能拿堆锁、触发 brk/mmap、page fault，最坏耗时不可控。</li>
+<li>实时线程一旦被阻塞，period 就错过了，直接 xrun。</li>
+<li>解决：初始化时预分配、用内存池/环形缓冲、所有缓冲静态化。</li>
+</ul>
+<p><strong>Q46 ★ xrun 的根因怎么定位？</strong></p>
+<ul>
+<li>先看是 underrun 还是 overrun，再看 <code>/proc/.../status</code> 的 avail 变化。</li>
+<li><code>strace -T</code> 看应用 read/write/ioctl 是否超时；<code>perf sched latency</code> 看调度延迟。</li>
+<li><code>cyclictest</code>/<code>hwlatdetect</code> 看系统抖动；<code>/proc/interrupts</code> 看中断是否被其它设备抢占。</li>
+<li>常见：period 太小、回调里有 I/O、CPU 降频、内存回收、驱动长临界区。</li>
+</ul>
+<p><strong>Q47 ★ CPU 占用太高，优化顺序是什么？</strong></p>
+<ul>
+<li>先 profile（perf/ftrace）找热点，别猜。</li>
+<li>算法：降采样、缩短滤波器、减小 FFT、子带处理、模型量化/剪枝。</li>
+<li>实现：定点化、NEON、循环展开、查表、planar 布局、减少内存带宽。</li>
+<li>系统：绑核、DMA 零拷贝、缓存友好、减少唤醒。</li>
+<li>最后才考虑换硬件/offload。</li>
+</ul>
+<p><strong>Q48 NEON 优化有哪些要点？</strong></p>
+<ul>
+<li>数据对齐、连续访问、避免 gather/scatter；planar 布局更适合 SIMD。</li>
+<li>用乘加（<code>vmlaq_f32</code>/<code>vmlal_s16</code>）、批量 load/store、减少水平求和。</li>
+<li>注意 AArch32/AArch64 指令差异（如 <code>vaddvq_f32</code> 仅 AArch64）。</li>
+<li>定点用 <code>vqdmulh</code>/<code>vqrdmulh</code> 做饱和 Q15 乘法。</li>
+<li>优化后用 <code>perf stat</code> 看 IPC/cache miss，别只看周期数。</li>
+</ul>
+<p><strong>Q49 ★ 定点还是浮点？怎么选？</strong></p>
+<ul>
+<li>定点：功耗低、面积小、确定性强，适合 DSP/低端 MCU；但需要定标、易溢出、开发慢。</li>
+<li>浮点：动态范围大、开发快，A55 以上 NEON 浮点性能足够；但功耗高、denormal 有坑。</li>
+<li>量产常用定点，原型/主核用浮点；混合方案也常见（关键内核定点）。</li>
+</ul>
+<p><strong>Q50 ★ 端侧音频怎么降功耗？</strong></p>
+<ul>
+<li>always-on 任务放 DSP/低功耗核，主核深度睡眠。</li>
+<li>降低采样率/通道数，按场景动态切换。</li>
+<li>合并唤醒、批处理、减少 CPU 进出 C-state。</li>
+<li>关闭未用麦克风/功放，选低静态电流器件。</li>
+<li>注意温度/降频对实时性的影响，留余量。</li>
+</ul>
+<p><strong>Q51 ★ 多核/DSP offload 怎么划分？</strong></p>
+<ul>
+<li>硬实时、固定算法（AEC/NS/BF/KWS）放 DSP；复杂/可变的（ASR/大模型）放主核+NPU。</li>
+<li>划分依据：算力、延迟、功耗、内存带宽、开发成本。</li>
+<li>核间通信用共享内存 + mailbox/ring buffer，注意 cache 一致性和同步开销。</li>
+<li>要能回退到主核，便于调试和不同档位产品复用。</li>
+</ul>
+<p><strong>Q52 ★ 音频延迟和音质怎么测试？</strong></p>
+<ul>
+<li>延迟：环回脉冲、<code>latmus</code>、示波器、人工嘴/耳；分别测应用层和声学端到端。</li>
+<li>音质：THD+N、SNR、频响、串扰、底噪、最大输出；用 AP/QA401/REW。</li>
+<li>语音：PESQ/STOI/DNSMOS、ASR WER、唤醒率/误唤醒。</li>
+<li>稳定性：72h soak、插拔/切换/suspend、统计 xrun。</li>
+</ul>
+<h3> 5.5 场景设计（Q53—Q60）</h3>
+<p><strong>Q53 ★ 设计一个 4 麦远场语音前端，你会怎么做？</strong></p>
+<ul>
+<li>硬件：4 个 MEMS（PDM 或 TDM），间距 10—40 mm，线性/环形按覆盖选；预留校准。</li>
+<li>链路：PDM 抽取 → HPF → BF（DOA 选向）→ AEC → NS → AGC → VAD → KWS/ASR。</li>
+<li>采样率 16k 处理，48k 采集后降采样；AEC 参考用播放链路。</li>
+<li>算力：BF+AEC+NS 约 20—40% A53 单核，可 offload 到 DSP。</li>
+<li>难点：麦克风一致性、混响、双讲、误唤醒、功耗。</li>
+</ul>
+<p><strong>Q54 USB 会议扬声器怎么设计？</strong></p>
+<ul>
+<li>UAC2 声卡（异步反馈），上行多麦阵列，下行扬声器；AEC 参考取 USB 播放流。</li>
+<li>全双工，延迟 20—40 ms；需要回声消除、降噪、AGC、自动增益。</li>
+<li>结构上做隔振/导向，减少扬声器-麦克风耦合；产线校准麦克风。</li>
+<li>兼容性：Windows/macOS/Linux/Teams/Zoom 的采样率与通道协商。</li>
+</ul>
+<p><strong>Q55 ★ 设计一个 &lt;20 ms 的游戏耳机，关键点？</strong></p>
+<ul>
+<li>48 kHz、period 1—2 ms、buffer 2—3 period，直接 <code>hw:</code> + mmap，绕开 PulseAudio。</li>
+<li>有线 USB/2.4G 优先；蓝牙用 LE Audio/LC3，A2DP 做不到。</li>
+<li>不做重采样（统一 48k），算法 lookahead 尽量小，AEC 只在需要时开。</li>
+<li>RT 线程 + 绑核 + 关闭调频；端到端预算：ADC 1 ms + buffer 3 ms + 处理 2 ms + DAC 1 ms + 无线 5—10 ms。</li>
+</ul>
+<p><strong>Q56 回声路径变化（设备移动、温度、音量）怎么处理？</strong></p>
+<ul>
+<li>自适应滤波器要持续跟踪（泄漏/步长控制），但不能在双讲时发散。</li>
+<li>用双滤波器/背景模型检测路径变化；AEC3 的延迟估计要持续更新。</li>
+<li>音量变化会改变非线性回声，NLP 要按音量/功率自适应。</li>
+<li>结构/温度引起的长期漂移靠鲁棒 NLP 兜底。</li>
+</ul>
+<p><strong>Q57 ★ 只有单麦，怎么做降噪？</strong></p>
+<ul>
+<li>传统：谱减/维纳/MMSE + 噪声估计（MCRA），配合 VAD 和增益平滑。</li>
+<li>深度：RNNoise/DCCRN 等单通道模型，注意端侧算力。</li>
+<li>单麦无法做空间滤波，风噪/混响/强干扰能力有限；可加物理结构（指向性麦、防风罩）。</li>
+<li>切忌过度降噪损伤语音，宁可保守。</li>
+</ul>
+<p><strong>Q58 44.1k 内容在 48k 设备上怎么处理？</strong></p>
+<ul>
+<li>优先在解码后做一次高质量 SRC（soxr/libsamplerate），统一到 48k 再进混音。</li>
+<li>不要用零阶保持/线性插值；注意 SRC 的群延迟和 CPU。</li>
+<li>全链路只转一次，避免反复 44.1↔48；AEC 参考与麦克风必须同率。</li>
+</ul>
+<p><strong>Q59 产线音频测试怎么做？</strong></p>
+<ul>
+<li>治具：人工嘴/人工耳或耦合腔，标准声源，隔音箱。</li>
+<li>测项：灵敏度、频响、THD+N、SNR、底噪、左右一致性、麦克风相位一致性、pop、电流。</li>
+<li>快速筛选：播放扫频/多音，录音后分析；NG 判定阈值按机型标定。</li>
+<li>校准数据写入设备（麦克风灵敏度/相位补偿）。</li>
+</ul>
+<p><strong>Q60 ★ 线上投诉回声/啸叫，怎么排查？</strong></p>
+<ul>
+<li>先复现：机型、音量、场景（免提/会议/车载）、固件版本；抓录音/参考信号。</li>
+<li>回声：检查参考延迟对齐、AEC 是否被 bypass、NLP 强度、扬声器非线性、结构耦合。</li>
+<li>啸叫：增益过大、麦克风指向扬声器、AEC 失效；加陷波/移频/限幅，优化结构。</li>
+<li>对比良品/不良品，查麦克风一致性、装配、温度；必要时 OTA 调参。</li>
+</ul>
+<hr>
+<p><strong>系列导航</strong>：<a href="/source-study/audio/" target="blank">系列导览</a> · <strong>下一篇</strong>：<a href="/source-study/audio/07-cheatsheet.html" target="blank">设备端音频（七）：公式、命令、术语与自测清单</a></p>
+]]></content>
+    <category term="学习源码"/>
+    <published>2026-10-21T00:00:00.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">设备端音频（七）：公式、命令、术语与自测清单</title>
+    <id>https://sparksding.github.io/source-study/audio/07-cheatsheet.html</id>
+    <link href="https://sparksding.github.io/source-study/audio/07-cheatsheet.html"/>
+    <updated>2026-10-21T05:53:06.000Z</updated>
+    <summary type="html"><![CDATA[<blockquote>
+<p>本文是「设备端音频与语音处理」系列第 7 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
+</blockquote>
+<p>公式、命令、术语和 60 项自测清单，适合放在手边随时查。公式按主题分组，命令按排查顺序组织。</p>
+]]></summary>
+    <content type="html"><![CDATA[<blockquote>
+<p>本文是「设备端音频与语音处理」系列第 7 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
+</blockquote>
+<p>公式、命令、术语和 60 项自测清单，适合放在手边随时查。公式按主题分组，命令按排查顺序组织。</p>
+<!-- more -->
+<h2> 附录 A：公式速查</h2>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><hr>
+<h2> 附录 B：命令速查</h2>
+<table>
+<thead>
+<tr>
+<th>目的</th>
+<th>命令</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>列声卡</td>
+<td><code>cat /proc/asound/cards</code></td>
+</tr>
+<tr>
+<td>列 PCM 设备</td>
+<td><code>aplay -l</code>、<code>arecord -l</code></td>
+</tr>
+<tr>
+<td>列逻辑设备</td>
+<td><code>aplay -L</code></td>
+</tr>
+<tr>
+<td>当前参数</td>
+<td><code>cat /proc/asound/card0/pcm0p/sub0/hw_params</code></td>
+</tr>
+<tr>
+<td>当前状态</td>
+<td><code>cat /proc/asound/card0/pcm0p/sub0/status</code></td>
+</tr>
+<tr>
+<td>播放测试</td>
+<td><code>speaker-test -D hw:0,0 -c 2 -t sine -f 1000 -l 1</code></td>
+</tr>
+<tr>
+<td>录音测试</td>
+<td><code>arecord -D hw:0,0 -f S16_LE -r 48000 -c 2 -d 5 /tmp/t.wav</code></td>
+</tr>
+<tr>
+<td>播放文件</td>
+<td><code>aplay -D hw:0,0 /tmp/t.wav</code></td>
+</tr>
+<tr>
+<td>打印支持参数</td>
+<td><code>aplay -D hw:0,0 --dump-hw-params /tmp/t.wav</code></td>
+</tr>
+<tr>
+<td>Mixer 列表</td>
+<td><code>amixer -c 0 scontrols</code></td>
+</tr>
+<tr>
+<td>Mixer 详情</td>
+<td><code>amixer -c 0 contents</code></td>
+</tr>
+<tr>
+<td>设音量</td>
+<td><code>amixer -c 0 sset 'Master' 80%</code></td>
+</tr>
+<tr>
+<td>保存/恢复</td>
+<td><code>alsactl store</code>、<code>alsactl restore</code></td>
+</tr>
+<tr>
+<td>驱动日志</td>
+<td><code>dmesg | grep -iE 'asoc|snd|codec|i2s'</code></td>
+</tr>
+<tr>
+<td>DAPM 状态</td>
+<td><code>cat /sys/kernel/debug/asoc/&lt;card&gt;/dapm</code></td>
+</tr>
+<tr>
+<td>时钟树</td>
+<td><code>cat /sys/kernel/debug/clk/clk_summary</code></td>
+</tr>
+<tr>
+<td>中断</td>
+<td><code>cat /proc/interrupts | grep -i i2s</code></td>
+</tr>
+<tr>
+<td>I2C 探测</td>
+<td><code>i2cdetect -y 0</code></td>
+</tr>
+<tr>
+<td>系统调用耗时</td>
+<td><code>strace -T -e trace=ioctl,read,write arecord ...</code></td>
+</tr>
+<tr>
+<td>往返延迟</td>
+<td><code>latmus</code>（alsa-tools）</td>
+</tr>
+<tr>
+<td>tinyalsa</td>
+<td><code>tinymix</code>、<code>tinyplay</code>、<code>tinycap</code>、<code>tinypcminfo</code></td>
+</tr>
+<tr>
+<td>PulseAudio</td>
+<td><code>pactl info</code>、<code>pactl list short sinks</code></td>
+</tr>
+<tr>
+<td>PipeWire</td>
+<td><code>pw-top</code>、<code>wpctl status</code>、<code>pw-cli info all</code></td>
+</tr>
+<tr>
+<td>GStreamer</td>
+<td><code>gst-launch-1.0 alsasrc ! audioconvert ! alsasink</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>性能与实时性</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>目的</th>
+<th>命令</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CPU 热点</td>
+<td><code>perf top -p &lt;pid&gt;</code> / <code>perf record -g -p &lt;pid&gt;</code></td>
+</tr>
+<tr>
+<td>调度延迟</td>
+<td><code>perf sched latency</code></td>
+</tr>
+<tr>
+<td>函数图</td>
+<td><code>ftrace</code>: <code>echo function_graph &gt; current_tracer</code></td>
+</tr>
+<tr>
+<td>跟踪 snd</td>
+<td><code>trace-cmd record -p function_graph -g 'snd_*'</code></td>
+</tr>
+<tr>
+<td>实时抖动</td>
+<td><code>cyclictest -t -p80 -n -i1000 -l10000</code></td>
+</tr>
+<tr>
+<td>硬件停顿</td>
+<td><code>hwlatdetect</code></td>
+</tr>
+<tr>
+<td>功耗</td>
+<td><code>powertop</code>、<code>turbostat</code></td>
+</tr>
+<tr>
+<td>内存分配</td>
+<td><code>heaptrack</code>、<code>valgrind --tool=massif</code></td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2> 附录 C：术语表</h2>
+<table>
+<thead>
+<tr>
+<th>缩写</th>
+<th>全称</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ADC/DAC</td>
+<td>Analog-to-Digital / Digital-to-Analog Converter</td>
+<td>模数/数模转换</td>
+</tr>
+<tr>
+<td>AEC</td>
+<td>Acoustic Echo Cancellation</td>
+<td>声学回声消除</td>
+</tr>
+<tr>
+<td>AFE</td>
+<td>Audio Front End</td>
+<td>语音前端</td>
+</tr>
+<tr>
+<td>AGC</td>
+<td>Automatic Gain Control</td>
+<td>自动增益控制</td>
+</tr>
+<tr>
+<td>AOP</td>
+<td>Acoustic Overload Point</td>
+<td>麦克风过载点</td>
+</tr>
+<tr>
+<td>ASRC</td>
+<td>Asynchronous Sample Rate Conversion</td>
+<td>异步采样率转换</td>
+</tr>
+<tr>
+<td>BF</td>
+<td>Beamforming</td>
+<td>波束成形</td>
+</tr>
+<tr>
+<td>DAPM</td>
+<td>Dynamic Audio Power Management</td>
+<td>ASoC 动态电源管理</td>
+</tr>
+<tr>
+<td>DMA</td>
+<td>Direct Memory Access</td>
+<td>直接内存访问</td>
+</tr>
+<tr>
+<td>DOA</td>
+<td>Direction of Arrival</td>
+<td>波达方向</td>
+</tr>
+<tr>
+<td>DRC</td>
+<td>Dynamic Range Compression</td>
+<td>动态范围压缩</td>
+</tr>
+<tr>
+<td>ERLE</td>
+<td>Echo Return Loss Enhancement</td>
+<td>回声抑制量</td>
+</tr>
+<tr>
+<td>FEC</td>
+<td>Forward Error Correction</td>
+<td>前向纠错</td>
+</tr>
+<tr>
+<td>I2S</td>
+<td>Inter-IC Sound</td>
+<td>双声道数字音频接口</td>
+</tr>
+<tr>
+<td>KWS</td>
+<td>Keyword Spotting</td>
+<td>唤醒词检测</td>
+</tr>
+<tr>
+<td>LUFS</td>
+<td>Loudness Units Full Scale</td>
+<td>响度单位</td>
+</tr>
+<tr>
+<td>MCLK</td>
+<td>Master Clock</td>
+<td>主时钟</td>
+</tr>
+<tr>
+<td>MEMS</td>
+<td>Micro-Electro-Mechanical System</td>
+<td>硅麦克风</td>
+</tr>
+<tr>
+<td>NS</td>
+<td>Noise Suppression</td>
+<td>噪声抑制</td>
+</tr>
+<tr>
+<td>PBFDAF</td>
+<td>Partitioned Block Frequency-Domain Adaptive Filter</td>
+<td>分块频域自适应滤波</td>
+</tr>
+<tr>
+<td>PDM</td>
+<td>Pulse Density Modulation</td>
+<td>脉冲密度调制</td>
+</tr>
+<tr>
+<td>PGA</td>
+<td>Programmable Gain Amplifier</td>
+<td>可编程增益放大器</td>
+</tr>
+<tr>
+<td>PLC</td>
+<td>Packet Loss Concealment</td>
+<td>丢包补偿</td>
+</tr>
+<tr>
+<td>SRC</td>
+<td>Sample Rate Conversion</td>
+<td>采样率转换</td>
+</tr>
+<tr>
+<td>STFT</td>
+<td>Short-Time Fourier Transform</td>
+<td>短时傅里叶变换</td>
+</tr>
+<tr>
+<td>TDM</td>
+<td>Time Division Multiplexing</td>
+<td>时分复用多声道接口</td>
+</tr>
+<tr>
+<td>THD+N</td>
+<td>Total Harmonic Distortion + Noise</td>
+<td>总谐波失真加噪声</td>
+</tr>
+<tr>
+<td>TDOA</td>
+<td>Time Difference of Arrival</td>
+<td>到达时间差</td>
+</tr>
+<tr>
+<td>UAC</td>
+<td>USB Audio Class</td>
+<td>USB 音频类</td>
+</tr>
+<tr>
+<td>UCM</td>
+<td>Use Case Manager</td>
+<td>ALSA 用例管理</td>
+</tr>
+<tr>
+<td>VAD</td>
+<td>Voice Activity Detection</td>
+<td>语音活动检测</td>
+</tr>
+<tr>
+<td>WPE</td>
+<td>Weighted Prediction Error</td>
+<td>去混响算法</td>
+</tr>
+<tr>
+<td>xrun</td>
+<td>overrun / underrun</td>
+<td>缓冲溢出/欠载</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2> 附录 D：自测清单</h2>
+<p>按「能讲清原理 + 能指出取舍 + 能落到代码/命令」三个层次自评：每项 0（不会）、1（能说清）、2（能落地），共 60 项，满分 120。</p>
+<p><strong>基础（12 项）</strong></p>
+<ul class="task-list-container">
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-0" disabled="disabled"><label class="task-list-item-label" for="task-item-0"> 采样定理与抗混叠，为什么 44.1/48/16k</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-1" disabled="disabled"><label class="task-list-item-label" for="task-item-1"> 量化噪声公式、ENOB、dither</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-2" disabled="disabled"><label class="task-list-item-label" for="task-item-2"> dBFS/dBV/dBu/dBSPL 换算，麦克风灵敏度链路</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-3" disabled="disabled"><label class="task-list-item-label" for="task-item-3"> sample/frame/block，planar/interleaved</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-4" disabled="disabled"><label class="task-list-item-label" for="task-item-4"> S24_3LE/S24_LE/S32_LE 的区别</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-5" disabled="disabled"><label class="task-list-item-label" for="task-item-5"> MCLK/BCLK/LRCLK 计算与 I2S 时序</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-6" disabled="disabled"><label class="task-list-item-label" for="task-item-6"> I2S/TDM/PDM/SoundWire 选型</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-7" disabled="disabled"><label class="task-list-item-label" for="task-item-7"> 时钟域漂移的计算与解法</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-8" disabled="disabled"><label class="task-list-item-label" for="task-item-8"> 延迟预算的组成与估算</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-9" disabled="disabled"><label class="task-list-item-label" for="task-item-9"> xrun 的成因、恢复、定位</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-10" disabled="disabled"><label class="task-list-item-label" for="task-item-10"> 语音为什么用 16 kHz</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-11" disabled="disabled"><label class="task-list-item-label" for="task-item-11"> 真峰值/intersample peak</label></li>
+</ul>
+<p><strong>算法（18 项）</strong></p>
+<ul class="task-list-container">
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-12" disabled="disabled"><label class="task-list-item-label" for="task-item-12"> FIR/IIR 取舍，线性相位代价</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-13" disabled="disabled"><label class="task-list-item-label" for="task-item-13"> biquad 系数与 DF2T</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-14" disabled="disabled"><label class="task-list-item-label" for="task-item-14"> 低频数值精度问题</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-15" disabled="disabled"><label class="task-list-item-label" for="task-item-15"> 压缩器四参数与调参</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-16" disabled="disabled"><label class="task-list-item-label" for="task-item-16"> 限幅器 lookahead</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-17" disabled="disabled"><label class="task-list-item-label" for="task-item-17"> SRC 方法与质量指标</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-18" disabled="disabled"><label class="task-list-item-label" for="task-item-18"> ASRC/Farrow</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-19" disabled="disabled"><label class="task-list-item-label" for="task-item-19"> AEC 模型与 NLMS</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-20" disabled="disabled"><label class="task-list-item-label" for="task-item-20"> PBFDAF 与滤波器长度</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-21" disabled="disabled"><label class="task-list-item-label" for="task-item-21"> 双讲检测</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-22" disabled="disabled"><label class="task-list-item-label" for="task-item-22"> NLP/RES</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-23" disabled="disabled"><label class="task-list-item-label" for="task-item-23"> 谱减与 musical noise</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-24" disabled="disabled"><label class="task-list-item-label" for="task-item-24"> 维纳/MMSE-LSA</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-25" disabled="disabled"><label class="task-list-item-label" for="task-item-25"> 深度 NS 的端侧约束</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-26" disabled="disabled"><label class="task-list-item-label" for="task-item-26"> DAS/MVDR/GSC</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-27" disabled="disabled"><label class="task-list-item-label" for="task-item-27"> GCC-PHAT 与 DOA</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-28" disabled="disabled"><label class="task-list-item-label" for="task-item-28"> WPE 去混响</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-29" disabled="disabled"><label class="task-list-item-label" for="task-item-29"> PLC 与 jitter buffer</label></li>
+</ul>
+<p><strong>Linux/驱动/ALSA（16 项）</strong></p>
+<ul class="task-list-container">
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-30" disabled="disabled"><label class="task-list-item-label" for="task-item-30"> ASoC 三件套</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-31" disabled="disabled"><label class="task-list-item-label" for="task-item-31"> DAPM widget/route</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-32" disabled="disabled"><label class="task-list-item-label" for="task-item-32"> 声卡 probe 流程</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-33" disabled="disabled"><label class="task-list-item-label" for="task-item-33"> DTS 配置 simple-audio-card</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-34" disabled="disabled"><label class="task-list-item-label" for="task-item-34"> hw_params/trigger/pointer</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-35" disabled="disabled"><label class="task-list-item-label" for="task-item-35"> period/buffer 选择</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-36" disabled="disabled"><label class="task-list-item-label" for="task-item-36"> hw_params vs sw_params</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-37" disabled="disabled"><label class="task-list-item-label" for="task-item-37"> RW vs mmap</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-38" disabled="disabled"><label class="task-list-item-label" for="task-item-38"> xrun 恢复代码</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-39" disabled="disabled"><label class="task-list-item-label" for="task-item-39"> asound.conf 插件</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-40" disabled="disabled"><label class="task-list-item-label" for="task-item-40"> PulseAudio/PipeWire 关系</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-41" disabled="disabled"><label class="task-list-item-label" for="task-item-41"> 没声音的排查顺序</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-42" disabled="disabled"><label class="task-list-item-label" for="task-item-42"> /proc/asound 各文件</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-43" disabled="disabled"><label class="task-list-item-label" for="task-item-43"> amixer/kcontrol</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-44" disabled="disabled"><label class="task-list-item-label" for="task-item-44"> pop 声的软硬件原因</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-45" disabled="disabled"><label class="task-list-item-label" for="task-item-45"> 低延迟录音程序要点</label></li>
+</ul>
+<p><strong>架构/调优/场景（14 项）</strong></p>
+<ul class="task-list-container">
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-46" disabled="disabled"><label class="task-list-item-label" for="task-item-46"> 端侧语音分层</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-47" disabled="disabled"><label class="task-list-item-label" for="task-item-47"> 实时线程配置</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-48" disabled="disabled"><label class="task-list-item-label" for="task-item-48"> 回调禁忌</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-49" disabled="disabled"><label class="task-list-item-label" for="task-item-49"> 无锁环形缓冲</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-50" disabled="disabled"><label class="task-list-item-label" for="task-item-50"> xrun 根因树</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-51" disabled="disabled"><label class="task-list-item-label" for="task-item-51"> perf/ftrace/cyclictest</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-52" disabled="disabled"><label class="task-list-item-label" for="task-item-52"> NEON 优化</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-53" disabled="disabled"><label class="task-list-item-label" for="task-item-53"> 定点 vs 浮点</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-54" disabled="disabled"><label class="task-list-item-label" for="task-item-54"> denormal 处理</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-55" disabled="disabled"><label class="task-list-item-label" for="task-item-55"> CPU 预算估算</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-56" disabled="disabled"><label class="task-list-item-label" for="task-item-56"> 功耗优化</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-57" disabled="disabled"><label class="task-list-item-label" for="task-item-57"> DSP offload 划分</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-58" disabled="disabled"><label class="task-list-item-label" for="task-item-58"> 延迟/音质测试</label></li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" id="task-item-59" disabled="disabled"><label class="task-list-item-label" for="task-item-59"> 4 麦远场方案</label></li>
+</ul>
+<p><strong>两周复习建议</strong></p>
+<table>
+<thead>
+<tr>
+<th>天</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D1—D2</td>
+<td>第 1 章 + Q1—Q12，手推 SNR/时钟/延迟公式</td>
+</tr>
+<tr>
+<td>D3—D5</td>
+<td>2.1—2.4 + Q13—Q18，写一个 biquad 和压缩器</td>
+</tr>
+<tr>
+<td>D6—D8</td>
+<td>2.5—2.9 + Q19—Q30，画 AEC/NS/BF 数据流</td>
+</tr>
+<tr>
+<td>D9—D11</td>
+<td>第 3 章 + Q31—Q42，实际跑 aplay/arecord/amixer</td>
+</tr>
+<tr>
+<td>D12—D13</td>
+<td>第 4 章 + Q43—Q52，用 perf/cyclictest 做一次实验</td>
+</tr>
+<tr>
+<td>D14</td>
+<td>Q53—Q60 场景题，模拟面试复述</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2> 延伸阅读</h2>
+<ul>
+<li>ALSA 项目与文档：<a href="https://www.alsa-project.org/" target="_blank" rel="noopener noreferrer">https://www.alsa-project.org/</a></li>
+<li>Linux 内核 ASoC 文档：<a href="https://www.kernel.org/doc/html/latest/sound/soc/" target="_blank" rel="noopener noreferrer">https://www.kernel.org/doc/html/latest/sound/soc/</a></li>
+<li>PipeWire：<a href="https://pipewire.org/" target="_blank" rel="noopener noreferrer">https://pipewire.org/</a></li>
+<li>PulseAudio：<a href="https://www.freedesktop.org/wiki/Software/PulseAudio/" target="_blank" rel="noopener noreferrer">https://www.freedesktop.org/wiki/Software/PulseAudio/</a></li>
+<li>Opus 编解码：<a href="https://opus-codec.org/" target="_blank" rel="noopener noreferrer">https://opus-codec.org/</a></li>
+<li>WebRTC 音频处理（APM/AEC3/NS/AGC）：<a href="https://webrtc.org/" target="_blank" rel="noopener noreferrer">https://webrtc.org/</a></li>
+<li>ITU-R BS.1770 响度标准：<a href="https://www.itu.int/rec/R-REC-BS.1770" target="_blank" rel="noopener noreferrer">https://www.itu.int/rec/R-REC-BS.1770</a></li>
+</ul>
+<hr>
+<h2> 说明</h2>
+<ul>
+<li>本文是工程知识整理，性能数字为量级参考，具体以目标芯片、内核版本、codec 和算法实现为准。</li>
+<li>ALSA/ASoC 的 API 与调试接口随内核版本变化（尤其是 <code>simple-audio-card</code>、UCM、PipeWire），落地前查对应版本文档。</li>
+<li>语音算法的最佳参数强依赖设备结构（麦克风间距、扬声器位置、腔体），不存在通用最优值，必须实测调参。</li>
+</ul>
+<hr>
+<p><strong>系列导航</strong>：<a href="/source-study/audio/" target="blank">系列导览</a> · 全系列完。</p>
+]]></content>
+    <category term="学习源码"/>
+    <published>2026-10-21T00:00:00.000Z</published>
+  </entry>
+  <entry>
+    <title type="text">设备端音频与语音处理：从 pipeline 到 Linux 音频栈</title>
+    <id>https://sparksding.github.io/source-study/audio/</id>
+    <link href="https://sparksding.github.io/source-study/audio/"/>
+    <updated>2026-10-21T05:53:06.000Z</updated>
+    <summary type="html"><![CDATA[<p>这是一份面向设备端音频/语音岗位的系统笔记，也可以当作面试复习材料。它从 PCM 和时钟讲到 ALSA/ASoC，再到 AEC/NS/波束成形和端侧性能调优；每一节都尽量给出公式、代码或可验证的命令。</p>
+]]></summary>
+    <content type="html"><![CDATA[<p>这是一份面向设备端音频/语音岗位的系统笔记，也可以当作面试复习材料。它从 PCM 和时钟讲到 ALSA/ASoC，再到 AEC/NS/波束成形和端侧性能调优；每一节都尽量给出公式、代码或可验证的命令。</p>
+<!-- more -->
+<h2> 为什么写这个系列</h2>
+<p>设备端音频的难点很少是「某个算法不会」，而是<strong>每一环都知道一点，但连不起来</strong>：</p>
+<ul>
+<li>知道采样率，但说不清 MCLK/BCLK/LRCLK 怎么算；</li>
+<li>知道 AEC，但说不清参考信号为什么要对齐、双讲为什么要冻结；</li>
+<li>知道 ALSA，但遇到 xrun 只会调大 buffer；</li>
+<li>知道要优化，但说不清先动算法还是先动 NEON。</li>
+</ul>
+<p>这个系列按「pipeline → 算法 → Linux 栈 → 端侧架构 → 面试问答」组织，目标是把这些环扣起来。</p>
+<h2> 这个岗位在做什么</h2>
+<table>
+<thead>
+<tr>
+<th>JD 关键词</th>
+<th>对应章节</th>
+<th>面试真正会问的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数字音频 pipeline、各环节原理</td>
+<td>第 1 章</td>
+<td>采样/量化/时钟、延迟从哪来、buffer 怎么定</td>
+</tr>
+<tr>
+<td>常用音频算法、适用场景</td>
+<td>第 2 章</td>
+<td>为什么选 IIR 不选 FIR、AEC 为什么需要参考信号、NS 的代价</td>
+</tr>
+<tr>
+<td>设备端音频应用开发</td>
+<td>1.6、3.4、4.1</td>
+<td>录音/播放程序怎么写、xrun 怎么恢复</td>
+</tr>
+<tr>
+<td>Linux 音频栈：硬件/驱动/设备管理/ALSA</td>
+<td>第 3 章</td>
+<td>ASoC 三件套、DAPM、period/buffer、asound.conf</td>
+</tr>
+<tr>
+<td>端侧语音处理架构与性能调优</td>
+<td>第 4 章</td>
+<td>实时线程、CPU 预算、NEON/定点、功耗与 offload</td>
+</tr>
+</tbody>
+</table>
+<p>一句话概括这个岗位：<strong>把麦克风到云端/喇叭之间的每一毫秒、每一个采样点、每一份 CPU 和功耗都算清楚，并让它在真实设备上稳定跑住。</strong></p>
+<h2> 如果只剩 10 分钟</h2>
+<ol>
+<li><code>fs &gt; 2*f_max</code>；降采样前抗混叠，重建后模拟低通。</li>
+<li>位深每 +1 bit，SNR +6 dB；16 bit ≈ 98 dB，但真实动态范围由麦克风/codec 决定。</li>
+<li>延迟 = ADC + period/buffer + 处理 + lookahead + DAC；先问清测的是哪一段。</li>
+<li>period 决定调度粒度，buffer 决定抗抖动；<code>buffer = period × periods</code>。</li>
+<li>xrun 先分 under/over，再查调度延迟、page fault、period 是否过小。</li>
+<li>AEC 三件事：参考对齐、双讲冻结、非线性残留抑制。</li>
+<li>前端顺序：HPF → BF → AEC → NS → AGC → VAD；NS 必须在 AEC 之后。</li>
+<li>ASoC = machine + platform + codec；DAPM 管上下电顺序与 pop。</li>
+<li>实时线程：<code>SCHED_FIFO</code> + <code>mlockall</code> + 预分配 + 无锁队列。</li>
+<li>优化顺序：先 profile，再算法、实现、系统、硬件。</li>
+</ol>
+<h2> 系列目录</h2>
+<table>
+<thead>
+<tr>
+<th>篇</th>
+<th>标题</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>一</td>
+<td><a href="/source-study/audio/01-digital-audio-pipeline.html" target="blank">数字音频基础与 pipeline</a></td>
+<td>采样、量化、电平、PCM、时钟、延迟</td>
+</tr>
+<tr>
+<td>二</td>
+<td><a href="/source-study/audio/02-audio-algorithms.html" target="blank">常用音频算法与取舍</a></td>
+<td>滤波、动态、SRC、波束成形、AEC、NS</td>
+</tr>
+<tr>
+<td>三</td>
+<td><a href="/source-study/audio/03-linux-audio-stack.html" target="blank">Linux 音频栈</a></td>
+<td>ASoC、DAPM、设备树、ALSA、调试</td>
+</tr>
+<tr>
+<td>四</td>
+<td><a href="/source-study/audio/04-embedded-speech-architecture.html" target="blank">端侧语音架构与性能调优</a></td>
+<td>实时线程、perf/ftrace、NEON、功耗</td>
+</tr>
+<tr>
+<td>五</td>
+<td><a href="/source-study/audio/05-interview-basics-algorithms.html" target="blank">面试问答 30 题（基础与算法）</a></td>
+<td>Q1—Q30</td>
+</tr>
+<tr>
+<td>六</td>
+<td><a href="/source-study/audio/06-interview-linux-tuning-scenarios.html" target="blank">面试问答 30 题（Linux、调优与场景）</a></td>
+<td>Q31—Q60</td>
+</tr>
+<tr>
+<td>七</td>
+<td><a href="/source-study/audio/07-cheatsheet.html" target="blank">公式、命令、术语与自测清单</a></td>
+<td>速查与自测</td>
+</tr>
+</tbody>
+</table>
+<h2> 怎么读</h2>
+<ul>
+<li><strong>面试冲刺</strong>：先看「如果只剩 10 分钟」，再刷第五、六篇的 60 题；答不上来的回到对应章节。</li>
+<li><strong>系统补齐</strong>：按一 → 二 → 三 → 四顺序读，每篇末尾的代码和命令尽量跑一遍。</li>
+<li><strong>工程排障</strong>：直接看第三篇的调试命令和第四篇的 xrun/性能部分，再回到第二篇确认算法边界。</li>
+</ul>
+<h2> 说明</h2>
+<ul>
+<li>文中的性能数字是量级参考（以 Cortex-A53/A55、16 kHz 单通道、单核为基准），实测必须以目标板为准。</li>
+<li>ALSA/ASoC 的 API 与调试接口随内核版本变化，落地前查对应版本文档。</li>
+<li>语音算法的最佳参数强依赖设备结构（麦克风间距、扬声器位置、腔体），不存在通用最优值。</li>
+</ul>
+]]></content>
+    <category term="学习源码"/>
+    <published>2026-10-21T00:00:00.000Z</published>
+  </entry>
   <entry>
     <title type="text">从 dsh web 到一棵插件树：DSH 启动链路</title>
     <id>https://sparksding.github.io/deepseek-harness/01-boot.html</id>
