@@ -10,7 +10,7 @@ tag:
   - DSP
 ---
 
-> 本文是「设备端音频与语音处理」系列第 5 篇（共 7 篇）。系列导览：[从 pipeline 到 Linux 音频栈](/source-study/audio/)。
+> 本文是「设备端音频与语音处理」系列第 5 篇（共 7 篇）。系列导览：[从 pipeline 到 Linux 音频栈](README.md)。
 
 前 30 题覆盖数字音频基础与常用算法，适合面试前快速自测。答案给的是骨架：结论、原理、取舍、工程例子。
 
@@ -198,4 +198,4 @@ tag:
 
 ---
 
-**系列导航**：[系列导览](/source-study/audio/) · **下一篇**：[设备端音频（六）：面试问答 30 题（Linux、调优与场景）](/source-study/audio/06-interview-linux-tuning-scenarios.html)
+**系列导航**：[系列导览](README.md) · **下一篇**：[设备端音频（六）：面试问答 30 题（Linux、调优与场景）](06-interview-linux-tuning-scenarios.md)

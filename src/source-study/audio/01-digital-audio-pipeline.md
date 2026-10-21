@@ -11,7 +11,7 @@ tag:
   - 时钟
 ---
 
-> 本文是「设备端音频与语音处理」系列第 1 篇（共 7 篇）。系列导览：[从 pipeline 到 Linux 音频栈](/source-study/audio/)。
+> 本文是「设备端音频与语音处理」系列第 1 篇（共 7 篇）。系列导览：[从 pipeline 到 Linux 音频栈](README.md)。
 
 先把「声音怎么变成一串数」讲清楚：采样、量化、电平、PCM 布局、时钟和 buffer。这些概念决定了后面所有算法的输入质量，也决定了延迟和 xrun 的边界。
 
@@ -268,4 +268,4 @@ buffer 延迟   = buffer_size / fs
 
 ---
 
-**系列导航**：[系列导览](/source-study/audio/) · **下一篇**：[设备端音频（二）：常用音频算法与取舍](/source-study/audio/02-audio-algorithms.html)
+**系列导航**：[系列导览](README.md) · **下一篇**：[设备端音频（二）：常用音频算法与取舍](02-audio-algorithms.md)

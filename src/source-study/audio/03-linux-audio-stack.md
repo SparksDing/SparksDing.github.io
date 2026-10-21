@@ -11,7 +11,7 @@ tag:
   - 驱动
 ---
 
-> 本文是「设备端音频与语音处理」系列第 3 篇（共 7 篇）。系列导览：[从 pipeline 到 Linux 音频栈](/source-study/audio/)。
+> 本文是「设备端音频与语音处理」系列第 3 篇（共 7 篇）。系列导览：[从 pipeline 到 Linux 音频栈](README.md)。
 
 从 SoC 的 I2S 引脚一路讲到 `/dev/snd`：ASoC 三件套、DAPM、设备树、ALSA 的 period/buffer、asound.conf 和常用调试命令。
 
@@ -525,4 +525,4 @@ latmus                                   # alsa-tools，测往返延迟
 
 ---
 
-**系列导航**：[系列导览](/source-study/audio/) · **下一篇**：[设备端音频（四）：端侧语音架构与性能调优](/source-study/audio/04-embedded-speech-architecture.html)
+**系列导航**：[系列导览](README.md) · **下一篇**：[设备端音频（四）：端侧语音架构与性能调优](04-embedded-speech-architecture.md)

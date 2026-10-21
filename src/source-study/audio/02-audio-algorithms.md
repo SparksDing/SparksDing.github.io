@@ -12,7 +12,7 @@ tag:
   - SRC
 ---
 
-> 本文是「设备端音频与语音处理」系列第 2 篇（共 7 篇）。系列导览：[从 pipeline 到 Linux 音频栈](/source-study/audio/)。
+> 本文是「设备端音频与语音处理」系列第 2 篇（共 7 篇）。系列导览：[从 pipeline 到 Linux 音频栈](README.md)。
 
 这一篇按「解决什么问题 → 原理 → 参数怎么定 → 代价与坑」梳理设备端最常用的算法：滤波、动态处理、采样率转换、波束成形、AEC、NS、VAD。
 
@@ -451,4 +451,4 @@ ADC → DC/HPF → 波束成形 → AEC → NS → AGC → VAD → 编码/ASR
 
 ---
 
-**系列导航**：[系列导览](/source-study/audio/) · **下一篇**：[设备端音频（三）：Linux 音频栈](/source-study/audio/03-linux-audio-stack.html)
+**系列导航**：[系列导览](README.md) · **下一篇**：[设备端音频（三）：Linux 音频栈](03-linux-audio-stack.md)

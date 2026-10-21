@@ -12,7 +12,7 @@ tag:
   - 功耗
 ---
 
-> 本文是「设备端音频与语音处理」系列第 4 篇（共 7 篇）。系列导览：[从 pipeline 到 Linux 音频栈](/source-study/audio/)。
+> 本文是「设备端音频与语音处理」系列第 4 篇（共 7 篇）。系列导览：[从 pipeline 到 Linux 音频栈](README.md)。
 
 把语音前端放进真实设备：VoIP、远场助手、会议、媒体播放四类场景的分层与数据流；实时线程、无锁缓冲、perf/ftrace/cyclictest、NEON/定点、功耗与量产问题。
 
@@ -331,4 +331,4 @@ __asm__ volatile("msr fpcr, %0" :: "r"(fpcr));
 
 ---
 
-**系列导航**：[系列导览](/source-study/audio/) · **下一篇**：[设备端音频（五）：面试问答 30 题（基础与算法）](/source-study/audio/05-interview-basics-algorithms.html)
+**系列导航**：[系列导览](README.md) · **下一篇**：[设备端音频（五）：面试问答 30 题（基础与算法）](05-interview-basics-algorithms.md)

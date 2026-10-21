@@ -56,13 +56,13 @@ tag:
 
 | 篇 | 标题 | 内容 |
 | --- | --- | --- |
-| 一 | [数字音频基础与 pipeline](01-digital-audio-pipeline.html) | 采样、量化、电平、PCM、时钟、延迟 |
-| 二 | [常用音频算法与取舍](02-audio-algorithms.html) | 滤波、动态、SRC、波束成形、AEC、NS |
-| 三 | [Linux 音频栈](03-linux-audio-stack.html) | ASoC、DAPM、设备树、ALSA、调试 |
-| 四 | [端侧语音架构与性能调优](04-embedded-speech-architecture.html) | 实时线程、perf/ftrace、NEON、功耗 |
-| 五 | [面试问答 30 题（基础与算法）](05-interview-basics-algorithms.html) | Q1—Q30 |
-| 六 | [面试问答 30 题（Linux、调优与场景）](06-interview-linux-tuning-scenarios.html) | Q31—Q60 |
-| 七 | [公式、命令、术语与自测清单](07-cheatsheet.html) | 速查与自测 |
+| 一 | [数字音频基础与 pipeline](01-digital-audio-pipeline.md) | 采样、量化、电平、PCM、时钟、延迟 |
+| 二 | [常用音频算法与取舍](02-audio-algorithms.md) | 滤波、动态、SRC、波束成形、AEC、NS |
+| 三 | [Linux 音频栈](03-linux-audio-stack.md) | ASoC、DAPM、设备树、ALSA、调试 |
+| 四 | [端侧语音架构与性能调优](04-embedded-speech-architecture.md) | 实时线程、perf/ftrace、NEON、功耗 |
+| 五 | [面试问答 30 题（基础与算法）](05-interview-basics-algorithms.md) | Q1—Q30 |
+| 六 | [面试问答 30 题（Linux、调优与场景）](06-interview-linux-tuning-scenarios.md) | Q31—Q60 |
+| 七 | [公式、命令、术语与自测清单](07-cheatsheet.md) | 速查与自测 |
 
 ## 怎么读
 

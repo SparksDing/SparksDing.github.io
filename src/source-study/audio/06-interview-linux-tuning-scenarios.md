@@ -11,7 +11,7 @@ tag:
   - 性能调优
 ---
 
-> 本文是「设备端音频与语音处理」系列第 6 篇（共 7 篇）。系列导览：[从 pipeline 到 Linux 音频栈](/source-study/audio/)。
+> 本文是「设备端音频与语音处理」系列第 6 篇（共 7 篇）。系列导览：[从 pipeline 到 Linux 音频栈](README.md)。
 
 后 30 题覆盖 Linux/驱动/ALSA、端侧架构与性能调优，以及 8 道场景设计题。建议先自己答一遍，再看要点。
 
@@ -234,4 +234,4 @@ tag:
 
 ---
 
-**系列导航**：[系列导览](/source-study/audio/) · **下一篇**：[设备端音频（七）：公式、命令、术语与自测清单](/source-study/audio/07-cheatsheet.html)
+**系列导航**：[系列导览](README.md) · **下一篇**：[设备端音频（七）：公式、命令、术语与自测清单](07-cheatsheet.md)
