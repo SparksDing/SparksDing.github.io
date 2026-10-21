@@ -3,7 +3,7 @@
   <id>https://sparksding.github.io/</id>
   <title>还不知道叫什么名字</title>
   <subtitle>还不知道叫什么名字的博客</subtitle>
-  <updated>2026-10-21T05:58:59.242Z</updated>
+  <updated>2026-10-21T13:10:20.839Z</updated>
   <generator>vuepress-plugin-feed2</generator>
   <link rel="self" href="https://sparksding.github.io/atom.xml"/>
   <link rel="alternate" href="https://sparksding.github.io/"/>
@@ -26,7 +26,7 @@
     <title type="text">学习源码</title>
     <id>https://sparksding.github.io/source-study/</id>
     <link href="https://sparksding.github.io/source-study/"/>
-    <updated>2026-10-21T05:53:06.000Z</updated>
+    <updated>2026-10-21T13:08:43.000Z</updated>
     <summary type="html"><![CDATA[<h1> 学习源码</h1>
 <p>这里放「从实现角度学习技术」的笔记：不追求 API 大全，重点是把原理、取舍和验证方法讲清楚。</p>
 <h2> 系列</h2>
@@ -50,7 +50,7 @@
     <title type="text">设备端音频（一）：数字音频基础与 pipeline</title>
     <id>https://sparksding.github.io/source-study/audio/01-digital-audio-pipeline.html</id>
     <link href="https://sparksding.github.io/source-study/audio/01-digital-audio-pipeline.html"/>
-    <updated>2026-10-21T05:53:06.000Z</updated>
+    <updated>2026-10-21T13:08:43.000Z</updated>
     <summary type="html"><![CDATA[<blockquote>
 <p>本文是「设备端音频与语音处理」系列第 1 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
 </blockquote>
@@ -451,7 +451,7 @@
     <title type="text">设备端音频（二）：常用音频算法与取舍</title>
     <id>https://sparksding.github.io/source-study/audio/02-audio-algorithms.html</id>
     <link href="https://sparksding.github.io/source-study/audio/02-audio-algorithms.html"/>
-    <updated>2026-10-21T05:53:06.000Z</updated>
+    <updated>2026-10-21T13:08:43.000Z</updated>
     <summary type="html"><![CDATA[<blockquote>
 <p>本文是「设备端音频与语音处理」系列第 2 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
 </blockquote>
@@ -747,7 +747,7 @@
     <title type="text">设备端音频（三）：Linux 音频栈——ASoC、DAPM 与 ALSA 实战</title>
     <id>https://sparksding.github.io/source-study/audio/03-linux-audio-stack.html</id>
     <link href="https://sparksding.github.io/source-study/audio/03-linux-audio-stack.html"/>
-    <updated>2026-10-21T05:53:06.000Z</updated>
+    <updated>2026-10-21T13:08:43.000Z</updated>
     <summary type="html"><![CDATA[<blockquote>
 <p>本文是「设备端音频与语音处理」系列第 3 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
 </blockquote>
@@ -1029,7 +1029,7 @@
     <title type="text">设备端音频（四）：端侧语音架构与性能调优</title>
     <id>https://sparksding.github.io/source-study/audio/04-embedded-speech-architecture.html</id>
     <link href="https://sparksding.github.io/source-study/audio/04-embedded-speech-architecture.html"/>
-    <updated>2026-10-21T05:53:06.000Z</updated>
+    <updated>2026-10-21T13:08:43.000Z</updated>
     <summary type="html"><![CDATA[<blockquote>
 <p>本文是「设备端音频与语音处理」系列第 4 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
 </blockquote>
@@ -1385,7 +1385,7 @@
     <title type="text">设备端音频（五）：面试问答 30 题（基础与算法）</title>
     <id>https://sparksding.github.io/source-study/audio/05-interview-basics-algorithms.html</id>
     <link href="https://sparksding.github.io/source-study/audio/05-interview-basics-algorithms.html"/>
-    <updated>2026-10-21T05:53:06.000Z</updated>
+    <updated>2026-10-21T13:08:43.000Z</updated>
     <summary type="html"><![CDATA[<blockquote>
 <p>本文是「设备端音频与语音处理」系列第 5 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
 </blockquote>
@@ -1583,7 +1583,7 @@
     <title type="text">设备端音频（六）：面试问答 30 题（Linux、调优与场景）</title>
     <id>https://sparksding.github.io/source-study/audio/06-interview-linux-tuning-scenarios.html</id>
     <link href="https://sparksding.github.io/source-study/audio/06-interview-linux-tuning-scenarios.html"/>
-    <updated>2026-10-21T05:53:06.000Z</updated>
+    <updated>2026-10-21T13:08:43.000Z</updated>
     <summary type="html"><![CDATA[<blockquote>
 <p>本文是「设备端音频与语音处理」系列第 6 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
 </blockquote>
@@ -1815,7 +1815,7 @@
     <title type="text">设备端音频（七）：公式、命令、术语与自测清单</title>
     <id>https://sparksding.github.io/source-study/audio/07-cheatsheet.html</id>
     <link href="https://sparksding.github.io/source-study/audio/07-cheatsheet.html"/>
-    <updated>2026-10-21T05:53:06.000Z</updated>
+    <updated>2026-10-21T13:08:43.000Z</updated>
     <summary type="html"><![CDATA[<blockquote>
 <p>本文是「设备端音频与语音处理」系列第 7 篇（共 7 篇）。系列导览：<a href="/source-study/audio/" target="blank">从 pipeline 到 Linux 音频栈</a>。</p>
 </blockquote>
@@ -2294,7 +2294,7 @@
     <title type="text">设备端音频与语音处理：从 pipeline 到 Linux 音频栈</title>
     <id>https://sparksding.github.io/source-study/audio/</id>
     <link href="https://sparksding.github.io/source-study/audio/"/>
-    <updated>2026-10-21T05:57:45.000Z</updated>
+    <updated>2026-10-21T13:08:43.000Z</updated>
     <summary type="html"><![CDATA[<p>这是一份面向设备端音频/语音岗位的系统笔记，也可以当作面试复习材料。它从 PCM 和时钟讲到 ALSA/ASoC，再到 AEC/NS/波束成形和端侧性能调优；每一节都尽量给出公式、代码或可验证的命令。</p>
 ]]></summary>
     <content type="html"><![CDATA[<p>这是一份面向设备端音频/语音岗位的系统笔记，也可以当作面试复习材料。它从 PCM 和时钟讲到 ALSA/ASoC，再到 AEC/NS/波束成形和端侧性能调优；每一节都尽量给出公式、代码或可验证的命令。</p>
