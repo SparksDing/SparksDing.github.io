@@ -70,6 +70,7 @@ export const zhSidebar = sidebar([
           "05-interview-basics-algorithms.md",
           "06-interview-linux-tuning-scenarios.md",
           "07-cheatsheet.md",
+          "lab.md",
         ],
       },
     ],

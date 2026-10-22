@@ -10,6 +10,7 @@ index: false
 ## 系列
 
 - [设备端音频与语音处理：从 pipeline 到 Linux 音频栈](audio/)（7 篇）
+- [设备端音频实验手册（配套）](audio/lab.md)（8 个家庭实验）
 
 相关源码阅读：[DeepSeek Harness 源码阅读](../deepseek-harness/)。
 
