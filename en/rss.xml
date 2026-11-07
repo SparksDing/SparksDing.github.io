@@ -6,11 +6,141 @@
     <link>https://sparksding.github.io/en/</link>
     <description>Notes on backend engineering, distributed systems, and practice.</description>
     <language>en-US</language>
-    <pubDate>Thu, 22 Oct 2026 05:56:22 GMT</pubDate>
-    <lastBuildDate>Thu, 22 Oct 2026 05:56:22 GMT</lastBuildDate>
+    <pubDate>Sat, 07 Nov 2026 04:02:27 GMT</pubDate>
+    <lastBuildDate>Sat, 07 Nov 2026 04:02:27 GMT</lastBuildDate>
     <generator>vuepress-plugin-feed2</generator>
     <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
     <category>Engineering</category>
+    <item>
+      <title>Adding steer and cancel to a two-agent channel: preemptive interjection inside DeepSeek Harness</title>
+      <link>https://sparksding.github.io/en/architecture/dsh-peer-steer.html</link>
+      <guid>https://sparksding.github.io/en/architecture/dsh-peer-steer.html</guid>
+      <source url="https://sparksding.github.io/en/rss.xml">Adding steer and cancel to a two-agent channel: preemptive interjection inside DeepSeek Harness</source>
+      <description>The previous post covered dsh-peer&amp;apos;s connection direction and activity dashboard. This one goes after a narrower question: how do you interject while the other agent is in the middle of a turn, and even abort it? It took a while to see that DSH has three granularities of &amp;quot;sending a message&amp;quot;: prompt, steer, and cancel. The difference is not in the network layer — it is in the agent loop&amp;apos;s turn/step boundaries. 中文版: 给两个 agent 的对话加上 steer 与 cancel</description>
+      <category>Engineering</category>
+      <pubDate>Sat, 07 Nov 2026 00:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[<p>The <a href="/en/architecture/dsh-peer.html" target="blank">previous post</a> covered <code>dsh-peer</code>'s connection direction and activity dashboard. This one goes after a narrower question: <strong>how do you interject while the other agent is in the middle of a turn, and even abort it?</strong></p>
+<p>It took a while to see that DSH has three granularities of "sending a message": <code>prompt</code>, <code>steer</code>, and <code>cancel</code>. The difference is not in the network layer — it is in the agent loop's <strong>turn/step boundaries</strong>.</p>
+<blockquote>
+<p>中文版: <a href="/architecture/dsh-peer-steer.html" target="blank">给两个 agent 的对话加上 steer 与 cancel</a></p>
+</blockquote>
+<!-- more -->
+<h2> 1. A peer call is really a tool call</h2>
+<p>To the model, <code>peer_ask</code> is an ordinary tool:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>The remote side is a full runtime with its own model, tools, and session, but here it is wrapped as a function from prompt to final text. That abstraction has three gaps: no streaming, no reverse question, and no preemption. The first two were patched with a session mirror and an inbox; this post is about the third.</p>
+<h2> 2. How one turn actually runs</h2>
+<p>A turn consists of multiple steps; each step is one LLM request plus tool execution:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>Before each step the driver claims messages from the <strong>inbox</strong>, which has two queues:</p>
+<table>
+<thead>
+<tr>
+<th>Queue</th>
+<th>Written by</th>
+<th>Consumed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>next-turn</code></td>
+<td><code>prompt</code> / <code>followup</code></td>
+<td>after the current turn, as the first input of the next turn</td>
+</tr>
+<tr>
+<td><code>next-step</code></td>
+<td><code>steer</code> / <code>inject</code></td>
+<td><strong>before the next step starts</strong>, inside the current turn</td>
+</tr>
+</tbody>
+</table>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>Details that are easy to miss:</p>
+<ul>
+<li><strong>steer does not interrupt the current step</strong> — running tools finish; the message is seen at the next step</li>
+<li><strong>steer can keep a turn alive</strong> — if the model already decided to stop but <code>next-step</code> still has messages, the loop opens another step instead of breaking</li>
+<li><strong>cancel keeps the queue</strong> — with <code>keepInbox: true</code>, queued steers survive for a later turn</li>
+<li><strong>the inbox is durable</strong> — it is a session projection written into the session log, so it survives a restart</li>
+</ul>
+<p>So the three granularities are:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h2> 3. Protocol design</h2>
+<p>Three wire methods served by the link's <code>PeerHarnessServer</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Params</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>session/steer</code></td>
+<td><code>{ sessionId, contentBlocks }</code></td>
+<td><code>{ accepted, messageId }</code></td>
+</tr>
+<tr>
+<td><code>session/cancel</code></td>
+<td><code>{ sessionId, reason? }</code></td>
+<td><code>{ cancelled, status }</code></td>
+</tr>
+<tr>
+<td><code>session/state</code></td>
+<td><code>{ sessionId }</code></td>
+<td><code>{ status, seq }</code></td>
+</tr>
+</tbody>
+</table>
+<p>The link-side implementation is short; the important line is the ownership check — it only touches sessions this server created:</p>
+<div class="language-javascript line-numbers-mode" data-ext="js"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>The hub routes and rate-limits:</p>
+<div class="language-javascript line-numbers-mode" data-ext="js"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>Two more constraints:</p>
+<ul>
+<li><strong>Version gate</strong>: links older than 0.3.0 get a prompt fallback for steer, and cancel fails loudly instead of hitting an unknown method</li>
+<li><strong>Rate limit</strong>: 20 steer/cancel calls per peer per minute (<code>steerPerMinute</code>)</li>
+</ul>
+<h2> 4. Why a reverse question always arrives a turn late</h2>
+<p>The hub's answer goes out as <code>session/prompt</code>, and the SDK server turns that into:</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p><code>followup</code> lands in <code>next-turn</code>, so the answer is queued for the link's next turn:</p>
+<figure><img src="/assets/dsh-peer/peer-reverse-q.png" alt="Why the answer arrives a turn late" tabindex="0" loading="lazy"><figcaption>Why the answer arrives a turn late</figcaption></figure>
+<ul>
+<li><code>peer_ask</code> / <code>peer_send</code> are just how the hub <strong>sends its answer</strong>; they are not a status query</li>
+<li>the answer becomes a user message in the link's next turn</li>
+<li>the link gets a delivery receipt, not the answer itself</li>
+</ul>
+<p>A true request/response needs either a suspended RPC or a link-side inbox plus <code>peer_wait</code>.</p>
+<h2> 5. Where the three granularities sit</h2>
+<figure><img src="/assets/dsh-peer/peer-turn.png" alt="Peer turn / steer / cancel interaction" tabindex="0" loading="lazy"><figcaption>Peer turn / steer / cancel interaction</figcaption></figure>
+<h2> 6. The actual steer / cancel test</h2>
+<p>After macmini upgraded to 0.3.0:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>The link stayed connected afterwards:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p>Two semantics to keep in mind:</p>
+<ol>
+<li><strong>steer's "delivered" means queued.</strong> While the 90-second command was still running, the message sat in <code>next-step</code>; the model would only see it after that step. We cancelled right after, so it stayed in the queue under <code>keepInbox: true</code> and will be consumed in the next turn — not lost.</li>
+<li><strong>cancel aborts the turn, not the process.</strong> The running shell command may still finish; the agent stops advancing.</li>
+</ol>
+<h2> 7. The bug the test caught: a missing import</h2>
+<p>macmini kept reporting silent handshake failures. It looked like a network issue, but it was one import:</p>
+<div class="language-diff line-numbers-mode" data-ext="diff"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><code>link.js</code> used <code>PEER_VERSION</code> in <code>status()</code>, <code>peer/hello</code>, and reconnect state, but only <code>hub.js</code> imported it. Every dial threw a <code>ReferenceError</code> inside the handshake try/catch, was recorded as "handshake failed", and retried with backoff — the real exception never reached the log.</p>
+<p>Fix: <code>38f6c10</code> on <code>feat/session-mirror</code>.</p>
+<p>The lesson matters more than the fix: <strong>on a cross-machine link, any error swallowed by a catch looks like a network problem.</strong> Keep the original exception at least at the handshake boundary.</p>
+<h2> 8. What is still missing</h2>
+<ul>
+<li><strong>Code-level permission enforcement</strong>: peer-origin messages are still plain user messages, and a peer-woken turn runs with the user session's authority. The next step is to pin peer-origin turns to a restricted preset and require human approval for privileged actions.</li>
+<li><strong>Link-side inbox / wait</strong>: a link can send, but cannot wait for the hub's answer within the same turn.</li>
+<li><strong>Durable provenance</strong>: carry <code>origin</code> on the wire and store it in the message source instead of relying on a text prefix.</li>
+</ul>
+<h2> 9. Takeaways</h2>
+<ul>
+<li><code>prompt</code> / <code>steer</code> / <code>cancel</code> differ at the <strong>turn/step boundary</strong>, not on the wire</li>
+<li>steer is "next step", not an interrupt; cancel aborts the activity, not the process</li>
+<li>a version gate and a rate limit are part of the protocol, not polish</li>
+<li>when a cross-machine link misbehaves, suspect a swallowed exception before the network</li>
+</ul>
+<p>Code:</p>
+<ul>
+<li><a href="https://github.com/SparksDing/dsh-peer" target="_blank" rel="noopener noreferrer">SparksDing/dsh-peer</a> (<code>feat/session-mirror</code>)</li>
+<li>fork: <a href="https://github.com/SparksDing/deepseek-harness" target="_blank" rel="noopener noreferrer">SparksDing/deepseek-harness</a> (<code>feat/peer-session-mirror</code>)</li>
+</ul>
+]]></content:encoded>
+      <enclosure url="https://sparksding.github.io/assets/dsh-peer/peer-reverse-q.png" type="image/png"/>
+    </item>
     <item>
       <title>Engineering</title>
       <link>https://sparksding.github.io/en/architecture/</link>

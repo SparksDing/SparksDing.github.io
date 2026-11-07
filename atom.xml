@@ -3,13 +3,13 @@
   <id>https://sparksding.github.io/</id>
   <title>还不知道叫什么名字</title>
   <subtitle>还不知道叫什么名字的博客</subtitle>
-  <updated>2026-10-22T05:56:22.422Z</updated>
+  <updated>2026-11-07T04:02:27.593Z</updated>
   <generator>vuepress-plugin-feed2</generator>
   <link rel="self" href="https://sparksding.github.io/atom.xml"/>
   <link rel="alternate" href="https://sparksding.github.io/"/>
+  <category term="工程实践"/>
   <category term="学习源码"/>
   <category term="DeepSeek Harness"/>
-  <category term="工程实践"/>
   <category term="java"/>
   <category term="spring"/>
   <category term="distributed-system"/>
@@ -22,6 +22,155 @@
   <category term="idea"/>
   <category term="webtools"/>
   <category term="前端"/>
+  <entry>
+    <title type="text">给两个 agent 的对话加上 steer 与 cancel：在 DeepSeek Harness 运行时里做抢占式插话</title>
+    <id>https://sparksding.github.io/architecture/dsh-peer-steer.html</id>
+    <link href="https://sparksding.github.io/architecture/dsh-peer-steer.html"/>
+    <updated>2026-11-07T04:00:54.000Z</updated>
+    <summary type="html"><![CDATA[<p>上一篇 <a href="/architecture/dsh-peer.html" target="blank">让两个 DeepSeek Harness 跨机器对话</a> 写了 <code>dsh-peer</code> 的连接方向和活动看板。这一篇接着写一个更细的问题：<strong>怎么在对方 agent 跑一轮的时候插话，甚至中止它</strong>。</p>
+<p>绕了一圈才明白：在 DSH 里，"发消息"其实有三种粒度——<code>prompt</code>、<code>steer</code>、<code>cancel</code>。它们的差别不在网络层，而在 <strong>agent loop 的 turn/step 边界</strong>。这篇把语义、协议和一次真实的联调记录放在一起。</p>
+<blockquote>
+<p>English version: <a href="/en/architecture/dsh-peer-steer.html" target="blank">Adding steer and cancel to a two-agent channel</a></p>
+</blockquote>
+]]></summary>
+    <content type="html"><![CDATA[<p>上一篇 <a href="/architecture/dsh-peer.html" target="blank">让两个 DeepSeek Harness 跨机器对话</a> 写了 <code>dsh-peer</code> 的连接方向和活动看板。这一篇接着写一个更细的问题：<strong>怎么在对方 agent 跑一轮的时候插话，甚至中止它</strong>。</p>
+<p>绕了一圈才明白：在 DSH 里，"发消息"其实有三种粒度——<code>prompt</code>、<code>steer</code>、<code>cancel</code>。它们的差别不在网络层，而在 <strong>agent loop 的 turn/step 边界</strong>。这篇把语义、协议和一次真实的联调记录放在一起。</p>
+<blockquote>
+<p>English version: <a href="/en/architecture/dsh-peer-steer.html" target="blank">Adding steer and cancel to a two-agent channel</a></p>
+</blockquote>
+<!-- more -->
+<h2> 1. 起点：peer 调用其实是一个 tool call</h2>
+<p>对模型来说，<code>peer_ask</code> 就是一个普通工具：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>对端是另一台机器上的完整 runtime，有它自己的模型、工具和会话；但在这边，它被包成了"入参是 prompt、出参是最终文本"的函数。</p>
+<p>这个抽象有三个天然的短板：</p>
+<ol>
+<li><strong>没有流式</strong>：tool 结果一次性返回，看不到对方正在做什么（所以有了镜像会话）</li>
+<li><strong>不能反问</strong>：对方不能在同一次调用里问回来</li>
+<li><strong>不能抢占</strong>：调用期间无法干预对方</li>
+</ol>
+<p>前两个已经用镜像和 inbox 补过；这一次补第三个。</p>
+<h2> 2. DSH 里一轮到底是怎么跑的</h2>
+<p>先把运行时说清楚，否则 <code>steer</code> 和 <code>prompt</code> 的区别很容易被误解成"发消息的时机不同"。</p>
+<p>DSH 的 agent loop 里，<strong>turn 由多个 step 组成</strong>，每个 step 是一次 LLM 请求 + 工具执行：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>每一轮开始前，driver 会从 <strong>inbox</strong> 里 claim 消息，分成两个队列：</p>
+<table>
+<thead>
+<tr>
+<th>队列</th>
+<th>谁写入</th>
+<th>何时消费</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>next-turn</code></td>
+<td><code>prompt</code> / <code>followup</code></td>
+<td>当前轮结束后，作为下一轮的第一条输入</td>
+</tr>
+<tr>
+<td><code>next-step</code></td>
+<td><code>steer</code> / <code>inject</code></td>
+<td><strong>下一个 step 开始前</strong>，和当前轮的其他输入一起</td>
+</tr>
+</tbody>
+</table>
+<p>对应到 DSH 的 <code>Agent</code> 接口：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>几个容易被忽略的细节：</p>
+<ul>
+<li><strong>steer 不打断当前 step</strong>：正在跑的工具会跑完，消息在下一个 step 才被模型看到</li>
+<li><strong>steer 能让一轮"续命"</strong>：如果模型本来已经决定结束，但 <code>next-step</code> 里还有消息，loop 会再开一个 step 而不是 break</li>
+<li><strong>cancel 会保留队列</strong>：<code>keepInbox: true</code> 时，已排队的 steer 不丢，留给下一轮</li>
+<li><strong>inbox 是持久化的</strong>：它是 session projection，写在会话日志里，重启后还在</li>
+</ul>
+<p>所以三种粒度是：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h2> 3. 协议设计</h2>
+<p>在 wire 上加了三个方法，由 link 侧的 <code>PeerHarnessServer</code> 处理：</p>
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th>参数</th>
+<th>返回</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>session/steer</code></td>
+<td><code>{ sessionId, contentBlocks }</code></td>
+<td><code>{ accepted, messageId }</code></td>
+</tr>
+<tr>
+<td><code>session/cancel</code></td>
+<td><code>{ sessionId, reason? }</code></td>
+<td><code>{ cancelled, status }</code></td>
+</tr>
+<tr>
+<td><code>session/state</code></td>
+<td><code>{ sessionId }</code></td>
+<td><code>{ status, seq }</code></td>
+</tr>
+</tbody>
+</table>
+<p>link 侧的实现很短，关键只有一句：<strong>只允许操作这个 server 自己创建过的 session</strong>。</p>
+<div class="language-javascript line-numbers-mode" data-ext="js"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>hub 侧做路由和限流：</p>
+<div class="language-javascript line-numbers-mode" data-ext="js"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>另外两条约束：</p>
+<ul>
+<li><strong>版本门</strong>：link 版本低于 0.3.0 时，steer 降级为 prompt，cancel 直接报错——避免对端收到未知方法后静默失败</li>
+<li><strong>限流</strong>：每个 peer 每分钟 20 次 steer/cancel（<code>steerPerMinute</code> 可配），防止刷屏</li>
+</ul>
+<h2> 4. 反问为什么总是晚一轮</h2>
+<p>这是联调时最容易被问住的地方：link 问 hub 一个问题，hub 也回答了，但回答要等 link 当前轮结束才看到。</p>
+<p>原因在 hub 回答的那一步：它走的是 <code>session/prompt</code>，而 SDK server 收到 prompt 后调用的是：</p>
+<div class="language-typescript line-numbers-mode" data-ext="ts"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p><code>followup</code> 进的是 <code>next-turn</code>。所以：</p>
+<figure><img src="/assets/dsh-peer/peer-reverse-q.png" alt="反问流程：回答为什么晚一轮才到" tabindex="0" loading="lazy"><figcaption>反问流程：回答为什么晚一轮才到</figcaption></figure>
+<p>要点：</p>
+<ul>
+<li><code>peer_ask</code> / <code>peer_send</code> 只是 hub <strong>把回答文本送出去</strong>的两种方式，不是"查询处理进度"</li>
+<li>回答变成 link 的一条 user 消息，排进它的下一轮</li>
+<li>link 拿到的是"送达回执"，不是回答本身</li>
+</ul>
+<p>要让它"问完立刻拿到答复"，有两条路：请求-响应式（hub 挂起 RPC 直到本轮结束再返回）或者收件箱式（link 端 <code>peer_wait</code>）。两者都要额外协议，这篇先不展开。</p>
+<h2> 5. 三种粒度在 turn 里的位置</h2>
+<figure><img src="/assets/dsh-peer/peer-turn.png" alt="Peer turn / steer / cancel 交互" tabindex="0" loading="lazy"><figcaption>Peer turn / steer / cancel 交互</figcaption></figure>
+<h2> 6. 联调：一次真实的 steer / cancel 测试</h2>
+<p>macmini 升到 0.3.0 之后，做了一次端到端验证：</p>
+<p><strong>第一步：发一个不等待的长任务</strong></p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>第二步：等会话进入 running</strong></p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p><strong>第三步：插话</strong></p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><strong>第四步：中止</strong></p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>两个返回值都符合预期，而且 cancel 之后 link 仍然保持连接：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><h3> 两个语义细节</h3>
+<ol>
+<li><strong>steer 的"已投递"是入队</strong>：90 秒的命令还在跑时，消息只是进了 <code>next-step</code>；模型要等这个 step 结束才会看到。我们紧接着 cancel 了，所以它按 <code>keepInbox: true</code> 留在队列里，会在下一轮被消费——不会丢。</li>
+<li><strong>cancel 是中止 turn，不是杀进程</strong>：运行中的 shell 命令可能继续跑完，但 agent 不再推进本轮。</li>
+</ol>
+<h2> 7. 联调顺手抓到的 bug：漏了一个 import</h2>
+<p>联调过程中 macmini 反复出现"握手失败、静默重连"。看起来像网络问题，实际是一行 import：</p>
+<div class="language-diff line-numbers-mode" data-ext="diff"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p><code>link.js</code> 在 <code>status()</code>、<code>peer/hello</code> 和重连状态里用了 <code>PEER_VERSION</code>，但只有 <code>hub.js</code> 引入了它。每次拨号都会在握手 try/catch 里抛 <code>ReferenceError</code>，被记成 handshake failed 后按退避重连，日志里看不到真正的异常。</p>
+<p>修复提交：<code>38f6c10</code>（<code>SparksDing/dsh-peer</code>，<code>feat/session-mirror</code>）。</p>
+<p>这个 bug 的教训比修复本身重要：<strong>跨机器链路的错误如果被 catch 吞掉，现象会伪装成网络问题</strong>。握手阶段至少要保留原始异常。</p>
+<h2> 8. 还没做的</h2>
+<ul>
+<li><strong>代码级权限约束</strong>：peer 来源的消息目前只是普通 user 消息，被唤醒的 turn 用的是用户会话的权限。下一步要让 peer 来源的 turn 强制使用受限 preset，特权操作必须真人批准——安全不能只靠 prompt 提示词</li>
+<li><strong>link 端 inbox / wait</strong>：现在 link 只能"发"，不能在同一轮里等 hub 的回答</li>
+<li><strong>来源落盘</strong>：wire 上带 <code>origin</code>，把"这条消息来自哪个 peer"写进消息 source，而不是靠文本前缀</li>
+</ul>
+<h2> 9. 小结</h2>
+<ul>
+<li><code>prompt</code> / <code>steer</code> / <code>cancel</code> 的区别在 <strong>turn/step 边界</strong>，不在网络</li>
+<li>steer 是"下一步插话"，不打断当前 step；cancel 是"中止 activity"，不是杀进程</li>
+<li>协议上要加<strong>版本门</strong>和<strong>限流</strong>，否则旧版本会静默失败</li>
+<li>跨机器调试，先怀疑"异常被吞了"，再怀疑网络</li>
+</ul>
+<p>代码：</p>
+<ul>
+<li><a href="https://github.com/SparksDing/dsh-peer" target="_blank" rel="noopener noreferrer">SparksDing/dsh-peer</a>（<code>feat/session-mirror</code>）</li>
+<li>fork: <a href="https://github.com/SparksDing/deepseek-harness" target="_blank" rel="noopener noreferrer">SparksDing/deepseek-harness</a>（<code>feat/peer-session-mirror</code>）</li>
+</ul>
+]]></content>
+    <category term="工程实践"/>
+    <published>2026-11-07T00:00:00.000Z</published>
+  </entry>
   <entry>
     <title type="text">设备端音频实验手册（配套）</title>
     <id>https://sparksding.github.io/source-study/audio/lab.html</id>
