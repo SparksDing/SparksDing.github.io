@@ -30,6 +30,7 @@ export const zhSidebar = sidebar([
       "dsh-peer.md",
       "dsh-peer-steer.md",
       "dsh-peer-selection.md",
+      "dsh-peer-result-push.md",
     ],
   },
 
@@ -376,6 +377,7 @@ export const enSidebar = sidebar([
       "dsh-peer.md",
       "dsh-peer-steer.md",
       "dsh-peer-selection.md",
+      "dsh-peer-result-push.md",
     ],
   },
 ]);
