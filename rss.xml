@@ -6,8 +6,8 @@
     <link>https://sparksding.github.io/</link>
     <description>还不知道叫什么名字的博客</description>
     <language>zh-CN</language>
-    <pubDate>Sat, 07 Nov 2026 04:02:27 GMT</pubDate>
-    <lastBuildDate>Sat, 07 Nov 2026 04:02:27 GMT</lastBuildDate>
+    <pubDate>Sat, 07 Nov 2026 14:02:21 GMT</pubDate>
+    <lastBuildDate>Sat, 07 Nov 2026 14:02:21 GMT</lastBuildDate>
     <generator>vuepress-plugin-feed2</generator>
     <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
     <category>工程实践</category>
@@ -25,6 +25,137 @@
     <category>idea</category>
     <category>webtools</category>
     <category>前端</category>
+    <item>
+      <title>让选择落到会话上：dsh-peer 的交互式会话绑定</title>
+      <link>https://sparksding.github.io/architecture/dsh-peer-selection.html</link>
+      <guid>https://sparksding.github.io/architecture/dsh-peer-selection.html</guid>
+      <source url="https://sparksding.github.io/rss.xml">让选择落到会话上：dsh-peer 的交互式会话绑定</source>
+      <description>上一篇写了 steer 与 cancel。这一篇解决另一个问题：对方发来的消息，应该进哪个会话？我发出去的消息，又该落到对方的哪个工作区、哪个会话？ 最初的做法是&amp;quot;自动注入到最近一次调用的会话&amp;quot;——不可控，也解释不清。现在改成了用户选择，而且选择由工具内部强制，不靠模型自觉。 English version: Putting the choice on a session</description>
+      <category>工程实践</category>
+      <pubDate>Sat, 07 Nov 2026 00:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[<p>上一篇写了 <a href="/architecture/dsh-peer-steer.html" target="blank">steer 与 cancel</a>。这一篇解决另一个问题：<strong>对方发来的消息，应该进哪个会话？我发出去的消息，又该落到对方的哪个工作区、哪个会话？</strong></p>
+<p>最初的做法是"自动注入到最近一次调用的会话"——不可控，也解释不清。现在改成了<strong>用户选择</strong>，而且选择由工具内部强制，不靠模型自觉。</p>
+<blockquote>
+<p>English version: <a href="/en/architecture/dsh-peer-selection.html" target="blank">Putting the choice on a session</a></p>
+</blockquote>
+<!-- more -->
+<h2> 1. 为什么要"选会话"</h2>
+<p>早期的链路是这样的：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p>这有三个问题：</p>
+<ul>
+<li>多个本地会话都问过同一个 peer 时，<strong>最后调用的赢</strong>，回复可能进错会话</li>
+<li>peer 从没被问过的会话发消息时，没有"发起者"，只能进全局兜底</li>
+<li>对端有几十个会话，用户根本不知道消息会落到哪个</li>
+</ul>
+<p>所以把"目标"变成显式选择：<strong>工作区 + 会话</strong>。</p>
+<h2> 2. 发送侧：一张卡片选两件事</h2>
+<p>发送前的流程：</p>
+<figure><img src="/assets/dsh-peer/peer-selection.png" alt="发送与接收的选择流程" tabindex="0" loading="lazy"><figcaption>发送与接收的选择流程</figcaption></figure>
+<ol>
+<li><code>peer_targets(peer)</code> 拿到对端信息：
+<ul>
+<li><code>workspaces</code>：对端 dsh 注册的工作区列表</li>
+<li><code>sessions</code>：全部会话（活跃 + 已落盘），带<strong>标题</strong>和目录</li>
+</ul>
+</li>
+<li>工具内部调用 <code>userQuestions.ask</code>，一次问两个问题：
+<ul>
+<li>远端工作区：已有工作区 / 新建目录（输入绝对路径）</li>
+<li>远端会话：已有会话（显示 <code>标题 · 目录</code>）/ 新建会话（输入名字）</li>
+</ul>
+</li>
+<li>用户点完，工具拿到 <code>remoteDir</code> 和 <code>remoteSessionId</code>，才继续发送</li>
+</ol>
+<p>关键点：<strong>这一步在工具内部执行</strong>。<code>peer_ask</code> / <code>peer_send</code> 的 <code>execute</code> 里先 <code>await pickRemoteTarget(...)</code>，答案没回来就不会调用 <code>hub.ask</code>。模型没有办法"跳过提问直接发"——除非显式传 <code>remoteDir</code> + <code>session</code>/<code>remoteSessionId</code>（运维指令用）。</p>
+<h2> 3. 接收侧：先落 pending，再绑定</h2>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>几个细节：</p>
+<ul>
+<li><strong>不自动注入</strong>：消息先停在 pending，避免"落到不知道哪个会话"</li>
+<li><strong>落盘</strong>：入队和绑定都写文件，hub 重启后 pending 还在</li>
+<li><strong>竞态兜底</strong>：绑定成功后，若旧提示延迟到达，处理前先查 <code>peer_pending</code>；为空就只回"已处理"，不再弹第二次选择</li>
+</ul>
+<h2> 4. 远端会话为什么在 GUI 里看不见</h2>
+<p>这是踩得最久的一个坑。macmini 的 dsh GUI 按 <strong>workspace</strong> 列会话，并且用 <strong>session header 的 cwd</strong> 过滤。peer 会话最初是 link 用默认目录创建的：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>修复分两步：</p>
+<ol>
+<li>发送时把用户选的目录通过 <code>peer/prepare-session</code> 提前告诉 link，<strong>创建会话时直接用这个 cwd 作为 header cwd</strong></li>
+<li>会话创建后，link 找到 cwd 对应的工作区（没有就创建），<code>attachSession</code></li>
+</ol>
+<p>对已存在的旧会话，header cwd 改不了，所以仍可能不可见——新会话才会落到你选的目录。</p>
+<h2> 5. 会话标题从哪来</h2>
+<p>卡片的会话列表要显示"和 GUI 里一样的标题"，来源分两种：</p>
+<table>
+<thead>
+<tr>
+<th>会话状态</th>
+<th>标题来源</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>活跃（在 link 进程里）</td>
+<td><code>sessionTitle.get(session).title</code></td>
+</tr>
+<tr>
+<td>已落盘但未打开</td>
+<td><code>sessionProjectionCache.cachedSnapshot(header)</code> 的 title 投影</td>
+</tr>
+</tbody>
+</table>
+<p>合并后按 <code>createdAt</code> 倒序，最多 30 个；卡片里取最近 8 个，避免太长。</p>
+<h2> 6. 这一路踩的坑</h2>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>原因</th>
+<th>修复</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>卡片里没有已有会话</td>
+<td>hub 只列自己内存里的 <code>link.sessions</code>，重启即空</td>
+<td>向 link 查 <code>peer/sessions</code>，合并持久化会话</td>
+</tr>
+<tr>
+<td>选了目录，远端还是 <code>/Users/patrick</code></td>
+<td><code>working-directory/set</code> 改的是 projection，header cwd 没变；且 SDK server 的 <code>ctx.workingDirectory</code> 需要 inject</td>
+<td>link 自己实现 set（<code>ctx.get</code>），并在创建前用 <code>peer/prepare-session</code> 定 cwd</td>
+</tr>
+<tr>
+<td>发送前弹了卡片，显式传参也弹</td>
+<td>选择函数无条件调用</td>
+<td>显式 <code>remoteDir</code> + <code>session</code>/<code>remoteSessionId</code> 时跳过</td>
+</tr>
+<tr>
+<td>hub 重启后待绑定消息没了</td>
+<td>pending 只在内存</td>
+<td>落盘 <code>peer-pending.json</code></td>
+</tr>
+<tr>
+<td>绑定后旧提示又弹一次选择</td>
+<td>提示已入队，绑定无法撤回</td>
+<td>处理前检查 pending；为空只回"已处理"</td>
+</tr>
+</tbody>
+</table>
+<h2> 7. 还没做的</h2>
+<ul>
+<li><strong>应用内原生卡片</strong>：现在的选择卡片是 DSH 的 <code>ask_user_question</code> / <code>userQuestions.ask</code> 渲染的，已经比较接近原生；但"选择工作区 + 会话"目前是<strong>两个问题的同一张卡</strong>，不是专门的 picker 组件</li>
+<li><strong>代码级权限约束</strong>：peer 来源的 turn 仍然用用户会话的权限；应该改成受限 preset，特权操作必须真人批准</li>
+<li><strong>远端会话的 header 迁移</strong>：旧会话的 cwd 无法改，只能新建</li>
+</ul>
+<h2> 8. 小结</h2>
+<ul>
+<li>目标选择要<strong>显式</strong>：工作区、会话都让用户点，不猜"最近一次"</li>
+<li>强制要落在<strong>工具内部</strong>：<code>userQuestions.ask</code> 在 <code>execute</code> 里，模型跳不过</li>
+<li>可见性依赖 <strong>header cwd + workspace attach</strong>，不是"建了会话就自动出现"</li>
+<li>跨进程的状态（pending）要<strong>持久化</strong>，否则一次重启就丢</li>
+</ul>
+]]></content:encoded>
+      <enclosure url="https://sparksding.github.io/assets/dsh-peer/peer-selection.png" type="image/png"/>
+    </item>
     <item>
       <title>给两个 agent 的对话加上 steer 与 cancel：在 DeepSeek Harness 运行时里做抢占式插话</title>
       <link>https://sparksding.github.io/architecture/dsh-peer-steer.html</link>

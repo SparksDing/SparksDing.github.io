@@ -3,11 +3,139 @@
   <id>https://sparksding.github.io/en/</id>
   <title>SparksDing Notes</title>
   <subtitle>Notes on backend engineering, distributed systems, and practice.</subtitle>
-  <updated>2026-11-07T04:02:27.593Z</updated>
+  <updated>2026-11-07T14:02:21.015Z</updated>
   <generator>vuepress-plugin-feed2</generator>
   <link rel="self" href="https://sparksding.github.io/en/atom.xml"/>
   <link rel="alternate" href="https://sparksding.github.io/en/"/>
   <category term="Engineering"/>
+  <entry>
+    <title type="text">Putting the choice on a session: interactive binding in dsh-peer</title>
+    <id>https://sparksding.github.io/en/architecture/dsh-peer-selection.html</id>
+    <link href="https://sparksding.github.io/en/architecture/dsh-peer-selection.html"/>
+    <updated>2026-11-07T14:00:57.000Z</updated>
+    <summary type="html"><![CDATA[<p>The <a href="/en/architecture/dsh-peer-steer.html" target="blank">previous post</a> covered steer and cancel. This one is about a different question: <strong>when the other side sends a message, which session should receive it — and when I send, which remote workspace and session should it target?</strong></p>
+<p>The first version injected messages into "the session that last called the peer". That is neither predictable nor explainable. It is now a <strong>user choice</strong>, and the choice is enforced inside the tool rather than left to the model.</p>
+<blockquote>
+<p>中文版: <a href="/architecture/dsh-peer-selection.html" target="blank">让选择落到会话上</a></p>
+</blockquote>
+]]></summary>
+    <content type="html"><![CDATA[<p>The <a href="/en/architecture/dsh-peer-steer.html" target="blank">previous post</a> covered steer and cancel. This one is about a different question: <strong>when the other side sends a message, which session should receive it — and when I send, which remote workspace and session should it target?</strong></p>
+<p>The first version injected messages into "the session that last called the peer". That is neither predictable nor explainable. It is now a <strong>user choice</strong>, and the choice is enforced inside the tool rather than left to the model.</p>
+<blockquote>
+<p>中文版: <a href="/architecture/dsh-peer-selection.html" target="blank">让选择落到会话上</a></p>
+</blockquote>
+<!-- more -->
+<h2> 1. Why choose a session at all</h2>
+<p>The early flow:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div></div></div><p>Three problems:</p>
+<ul>
+<li>When several local sessions talked to the same peer, the <strong>last caller wins</strong> and the reply may land in the wrong conversation.</li>
+<li>A peer session the hub never prompted has no caller, so the message falls back to a global guess.</li>
+<li>The remote side may have dozens of sessions; the user has no idea where a message will land.</li>
+</ul>
+<p>So the target becomes explicit: <strong>workspace + session</strong>.</p>
+<h2> 2. Sending: one card, two questions</h2>
+<figure><img src="/assets/dsh-peer/peer-selection.png" alt="The send and receive selection flow" tabindex="0" loading="lazy"><figcaption>The send and receive selection flow</figcaption></figure>
+<ol>
+<li><code>peer_targets(peer)</code> returns the remote side's workspaces and <strong>all</strong> sessions (live and persisted), with titles and directories.</li>
+<li>The tool calls <code>userQuestions.ask</code> with two questions:
+<ul>
+<li>remote workspace: existing workspaces, or a new directory typed by the user</li>
+<li>remote session: existing sessions (<code>title · directory</code>), or a new session name</li>
+</ul>
+</li>
+<li>Only after the answer does the tool continue with <code>remoteDir</code> and <code>remoteSessionId</code>.</li>
+</ol>
+<p>The important part: <strong>this happens inside the tool's <code>execute</code></strong>. <code>peer_ask</code>/<code>peer_send</code> await <code>pickRemoteTarget(...)</code> before <code>hub.ask</code>; without an answer, no send happens. The model cannot skip it — unless it passes <code>remoteDir</code> plus <code>session</code>/<code>remoteSessionId</code> explicitly (the operations path).</p>
+<h2> 3. Receiving: pending first, then bind</h2>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>Details:</p>
+<ul>
+<li><strong>No automatic injection</strong>: the message waits in pending until the user decides.</li>
+<li><strong>Durable</strong>: enqueue and bind both write the file, so a hub restart does not lose the queue.</li>
+<li><strong>Stale notices</strong>: after a successful bind, a late notice checks <code>peer_pending</code> first; when the id is gone it answers "already handled" instead of asking again.</li>
+</ul>
+<h2> 4. Why the remote session is not visible in the GUI</h2>
+<p>The remote Web GUI lists sessions by <strong>workspace</strong>, filtered by the session header's cwd. Peer sessions were originally created with the link's default directory:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>The fix has two parts:</p>
+<ol>
+<li>Before creating a session, the hub sends <code>peer/prepare-session</code> with the chosen directory, and the link uses it as the <strong>header cwd</strong>.</li>
+<li>After creation, the link finds the workspace with that path (creating it if needed) and calls <code>attachSession</code>.</li>
+</ol>
+<p>Existing sessions keep their old header cwd; only new sessions land in the chosen workspace.</p>
+<h2> 5. Where session titles come from</h2>
+<table>
+<thead>
+<tr>
+<th>Session state</th>
+<th>Title source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>live (in the link process)</td>
+<td><code>sessionTitle.get(session).title</code></td>
+</tr>
+<tr>
+<td>persisted but not open</td>
+<td>the title projection in <code>sessionProjectionCache.cachedSnapshot(header)</code></td>
+</tr>
+</tbody>
+</table>
+<p>The list is merged, sorted by <code>createdAt</code> descending, capped at 30; the card shows the most recent 8.</p>
+<h2> 6. Pitfalls along the way</h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Cause</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>No existing sessions in the card</td>
+<td>the hub listed only its in-memory <code>link.sessions</code>, empty after a restart</td>
+<td>ask the link via <code>peer/sessions</code> and merge persisted sessions</td>
+</tr>
+<tr>
+<td>Chose a directory, remote still ran in the old one</td>
+<td><code>working-directory/set</code> changes the projection, not the header; the SDK server's <code>ctx.workingDirectory</code> needs an injection</td>
+<td>the link implements <code>set</code> itself and uses <code>peer/prepare-session</code> before creation</td>
+</tr>
+<tr>
+<td>The card appeared even with explicit arguments</td>
+<td>the picker was unconditional</td>
+<td>skip it when <code>remoteDir</code> + <code>session</code>/<code>remoteSessionId</code> are provided</td>
+</tr>
+<tr>
+<td>Pending messages vanished after a restart</td>
+<td>in-memory queue</td>
+<td>persist to <code>peer-pending.json</code></td>
+</tr>
+<tr>
+<td>A stale notice asked again after binding</td>
+<td>the notice was already queued</td>
+<td>check pending first; empty means "already handled"</td>
+</tr>
+</tbody>
+</table>
+<h2> 7. Still missing</h2>
+<ul>
+<li><strong>A native in-app picker</strong>: the choice is rendered by <code>userQuestions.ask</code> (two questions on one card), not a dedicated session-picker component.</li>
+<li><strong>Code-level permissions</strong>: peer-origin turns still run with the user session's authority; they should use a restricted preset with human approval for privileged actions.</li>
+<li><strong>Header migration</strong>: old sessions cannot change their header cwd; only new sessions get the chosen workspace.</li>
+</ul>
+<h2> 8. Takeaways</h2>
+<ul>
+<li>Make the target <strong>explicit</strong>: workspace and session are chosen, not inferred.</li>
+<li>Enforce inside the <strong>tool</strong>, not in the prompt: <code>userQuestions.ask</code> in <code>execute</code> cannot be skipped by the model.</li>
+<li>Visibility needs <strong>header cwd + workspace attach</strong>, not just "create a session".</li>
+<li>Cross-process state such as pending must be <strong>durable</strong>, or one restart loses it.</li>
+</ul>
+]]></content>
+    <category term="Engineering"/>
+    <published>2026-11-07T00:00:00.000Z</published>
+  </entry>
   <entry>
     <title type="text">Adding steer and cancel to a two-agent channel: preemptive interjection inside DeepSeek Harness</title>
     <id>https://sparksding.github.io/en/architecture/dsh-peer-steer.html</id>
