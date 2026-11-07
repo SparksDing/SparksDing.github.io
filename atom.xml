@@ -3,7 +3,7 @@
   <id>https://sparksding.github.io/</id>
   <title>还不知道叫什么名字</title>
   <subtitle>还不知道叫什么名字的博客</subtitle>
-  <updated>2026-11-07T14:02:21.015Z</updated>
+  <updated>2026-11-07T16:19:30.147Z</updated>
   <generator>vuepress-plugin-feed2</generator>
   <link rel="self" href="https://sparksding.github.io/atom.xml"/>
   <link rel="alternate" href="https://sparksding.github.io/"/>
@@ -22,6 +22,125 @@
   <category term="idea"/>
   <category term="webtools"/>
   <category term="前端"/>
+  <entry>
+    <title type="text">让结果自己回来：dsh-peer 的异步回传与归属边界</title>
+    <id>https://sparksding.github.io/architecture/dsh-peer-result-push.html</id>
+    <link href="https://sparksding.github.io/architecture/dsh-peer-result-push.html"/>
+    <updated>2026-11-07T16:18:20.000Z</updated>
+    <summary type="html"><![CDATA[<p>上一篇做了<a href="/architecture/dsh-peer-selection.html" target="blank">会话选择</a>。选完之后真正的问题才浮出来：<strong>发出去的消息，结果怎么回到发起方？</strong></p>
+<p>这一篇记录最后的方案——异步回传——以及一路上修掉的几个真 bug。它们不“高级”，但每一个都能让整条链路看起来“完全没通”。</p>
+]]></summary>
+    <content type="html"><![CDATA[<p>上一篇做了<a href="/architecture/dsh-peer-selection.html" target="blank">会话选择</a>。选完之后真正的问题才浮出来：<strong>发出去的消息，结果怎么回到发起方？</strong></p>
+<p>这一篇记录最后的方案——异步回传——以及一路上修掉的几个真 bug。它们不“高级”，但每一个都能让整条链路看起来“完全没通”。</p>
+<!-- more -->
+<h2> 1. 最终形态</h2>
+<figure><img src="/assets/dsh-peer/peer-result-loop.png" alt="异步结果回传" tabindex="0" loading="lazy"><figcaption>异步结果回传</figcaption></figure>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>没有同步阻塞，没有轮询，也没有“hub 的 agent 记得回复”这种人为依赖。</p>
+<h2> 2. 归属边界：hub 写不进 GUI 会话</h2>
+<p>这是最反直觉的一条。DSH 里 agent 有归属：</p>
+<ul>
+<li>GUI 会话的 agent 由 GUI 的会话控制器创建和持有</li>
+<li>peer 插件 <code>agents.get(那个 id)</code> 返回空，<code>resume</code> 也会失败</li>
+</ul>
+<p>所以“把消息投到用户正在看的会话”在插件层面做不到。最终方案是 hub <strong>自己建一个会话</strong>：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>peer 消息默认投到这里，它的 agent 起一轮处理，结果再推回 macmini。等于给 peer 通信开了一个“收发室”。</p>
+<h2> 3. steer 还是 prompt</h2>
+<p>回传时 macmini 可能在跑，也可能空闲：</p>
+<table>
+<thead>
+<tr>
+<th>远端状态</th>
+<th>方式</th>
+<th>效果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>running</td>
+<td><code>session/steer</code></td>
+<td>插进当前轮的下一个 step，轮询立刻停</td>
+</tr>
+<tr>
+<td>idle</td>
+<td><code>session/prompt</code></td>
+<td>起一轮，<code>[hub]</code> 作为新一轮输入</td>
+</tr>
+</tbody>
+</table>
+<p>状态不能信缓存（<code>session.status</code> 通知我们从来没收到过），所以回传前直接查：</p>
+<div class="language-javascript line-numbers-mode" data-ext="js"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><h2> 4. 本次修掉的真 bug</h2>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>根因</th>
+<th>修复</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>macmini 永远收不到结果</td>
+<td><code>#deliverToAgent</code> 里 <code>const sessionId = agent.session.id</code> <strong>覆盖了参数</strong>，<code>remoteSessionId</code> 记成本地 id</td>
+<td>本地 id 只作 map key，<code>remoteSessionId</code> 保留远端 id</td>
+</tr>
+<tr>
+<td>新建会话报 <code>unknown peer session</code></td>
+<td>会话还没创建就调 <code>working-directory/set</code></td>
+<td>忽略该错误；新会话 cwd 由 <code>peer/prepare-session</code> 在创建时带上</td>
+</tr>
+<tr>
+<td>hub 找不到 agent，消息落 pending</td>
+<td>归属隔离，GUI 会话不可写</td>
+<td>投递到 hub 自有的 Peer Inbox</td>
+</tr>
+<tr>
+<td>回传总走 prompt、排队</td>
+<td>缓存的 <code>session.status</code> 永远是 idle</td>
+<td>回传前查 <code>session/state</code></td>
+</tr>
+<tr>
+<td>忙碌会话等到整轮结束</td>
+<td><code>followup</code> 只能等</td>
+<td>running 时改 <code>steer</code></td>
+</tr>
+</tbody>
+</table>
+<p>第一个 bug 最典型：它不报错、不影响投递，只是<strong>回传发到了不存在的会话</strong>。表现就是“消息明明进了会话，对面就是收不到”。</p>
+<h2> 5. 怎么验证</h2>
+<p>不要靠“看起来应该通了”，要留下证据：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>macmini 端实际收到的内容：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>一边是推送日志，一边是接收原文，才算闭环。</p>
+<h2> 6. 发起方选择的代价</h2>
+<p>“谁发起谁选目标”是上一轮定下的方向：</p>
+<ul>
+<li>link 发送前用 <code>userQuestions.ask</code> 问用户选 hub 会话</li>
+<li>不带 <code>targetSessionId</code> 就会弹卡片；没人点，发送会被取消</li>
+</ul>
+<p>这很符合“谁发起谁确认”，但在无人值守时就是阻塞。折中：</p>
+<ul>
+<li>常用目标（如 <code>peer-inbox</code>）设默认，减少弹卡</li>
+<li>或者把选择结果记住，下一次复用</li>
+</ul>
+<h2> 7. 被删掉的东西</h2>
+<p>中途实现过 <code>peer_ask_hub</code>：发送并同步等待 hub 这一轮的文本。它和异步回传重复，而且：</p>
+<ul>
+<li>阻塞调用方</li>
+<li>hub 会话忙时会一直等</li>
+<li>存在互等（hub 反过来同步调 link）</li>
+</ul>
+<p>最后删掉，只保留异步。<strong>能异步就不要同步</strong>——这是这次最实用的一条。</p>
+<h2> 8. 教训</h2>
+<ul>
+<li><strong>归属边界先搞清楚</strong>：不是所有会话都能写，插件只能写自己拥有的</li>
+<li><strong>回传的 id 必须是远端的</strong>：本地 id 和远端 id 同名变量是灾难</li>
+<li><strong>状态不要信缓存</strong>：查一次 <code>session/state</code> 比维护通知可靠</li>
+<li><strong>部署后确认进程真的重启了</strong>：我遇到过定时重启没生效、在旧进程上测了半天</li>
+<li><strong>日志先行</strong>：<code>peer-push.log</code> 一加，问题立刻从“玄学”变成“一行失败信息”</li>
+</ul>
+]]></content>
+    <category term="工程实践"/>
+    <published>2026-11-08T00:00:00.000Z</published>
+  </entry>
   <entry>
     <title type="text">让选择落到会话上：dsh-peer 的交互式会话绑定</title>
     <id>https://sparksding.github.io/architecture/dsh-peer-selection.html</id>

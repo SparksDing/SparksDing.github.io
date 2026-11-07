@@ -6,11 +6,125 @@
     <link>https://sparksding.github.io/en/</link>
     <description>Notes on backend engineering, distributed systems, and practice.</description>
     <language>en-US</language>
-    <pubDate>Sat, 07 Nov 2026 14:02:21 GMT</pubDate>
-    <lastBuildDate>Sat, 07 Nov 2026 14:02:21 GMT</lastBuildDate>
+    <pubDate>Sat, 07 Nov 2026 16:19:30 GMT</pubDate>
+    <lastBuildDate>Sat, 07 Nov 2026 16:19:30 GMT</lastBuildDate>
     <generator>vuepress-plugin-feed2</generator>
     <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
     <category>Engineering</category>
+    <item>
+      <title>Let the result come back: async routing and ownership in dsh-peer</title>
+      <link>https://sparksding.github.io/en/architecture/dsh-peer-result-push.html</link>
+      <guid>https://sparksding.github.io/en/architecture/dsh-peer-result-push.html</guid>
+      <source url="https://sparksding.github.io/en/rss.xml">Let the result come back: async routing and ownership in dsh-peer</source>
+      <description>The previous post covered choosing a session. The real problem appeared afterwards: how does the result get back to whoever sent the message? This post records the final design — asynchronous result routing — and the bugs found along the way. None of them are exotic, but each one made the whole link look completely dead.</description>
+      <category>Engineering</category>
+      <pubDate>Sun, 08 Nov 2026 00:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[<p>The <a href="/en/architecture/dsh-peer-selection.html" target="blank">previous post</a> covered choosing a session. The real problem appeared afterwards: <strong>how does the result get back to whoever sent the message?</strong></p>
+<p>This post records the final design — asynchronous result routing — and the bugs found along the way. None of them are exotic, but each one made the whole link look completely dead.</p>
+<!-- more -->
+<h2> 1. Final shape</h2>
+<figure><img src="/assets/dsh-peer/peer-result-loop.png" alt="Asynchronous result routing" tabindex="0" loading="lazy"><figcaption>Asynchronous result routing</figcaption></figure>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>No blocking, no polling, and no dependency on the hub agent remembering to reply.</p>
+<h2> 2. Ownership: the hub cannot write into GUI sessions</h2>
+<p>The least intuitive constraint. In DSH every agent has an owner:</p>
+<ul>
+<li>a GUI session's agent is created and held by the GUI session controller</li>
+<li>the peer plugin's <code>agents.get(id)</code> returns nothing, and <code>resume</code> fails too</li>
+</ul>
+<p>So "deliver into the session the user is watching" is not possible from a plugin. The solution is a session the hub creates itself:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>Peer messages default there, its agent runs a turn, and the result is pushed back to macmini. A dedicated mailroom for peer traffic.</p>
+<h2> 3. steer or prompt</h2>
+<p>The remote side may be running or idle when the result arrives:</p>
+<table>
+<thead>
+<tr>
+<th>Remote state</th>
+<th>Mechanism</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>running</td>
+<td><code>session/steer</code></td>
+<td>injected at the next step; polling stops</td>
+</tr>
+<tr>
+<td>idle</td>
+<td><code>session/prompt</code></td>
+<td>starts a turn with <code>[hub]</code> as input</td>
+</tr>
+</tbody>
+</table>
+<p>Cached status is not trustworthy (<code>session.status</code> notifications never arrived), so query the link:</p>
+<div class="language-javascript line-numbers-mode" data-ext="js"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><h2> 4. The real bugs</h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Root cause</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>macmini never receives results</td>
+<td><code>const sessionId = agent.session.id</code> inside <code>#deliverToAgent</code> <strong>shadowed the parameter</strong>, so <code>remoteSessionId</code> became the local id</td>
+<td>local id only as the map key; keep the remote id</td>
+</tr>
+<tr>
+<td>new session throws <code>unknown peer session</code></td>
+<td><code>working-directory/set</code> called before the session exists</td>
+<td>ignore the error; the new session takes its cwd from <code>peer/prepare-session</code></td>
+</tr>
+<tr>
+<td>hub finds no agent, messages land in pending</td>
+<td>ownership isolation: GUI sessions are not writable</td>
+<td>deliver to a hub-owned Peer Inbox</td>
+</tr>
+<tr>
+<td>results always take the prompt path and queue</td>
+<td>cached <code>session.status</code> stays idle forever</td>
+<td>query <code>session/state</code> before pushing</td>
+</tr>
+<tr>
+<td>busy sessions wait for the whole turn</td>
+<td><code>followup</code> only queues</td>
+<td>steer when running</td>
+</tr>
+</tbody>
+</table>
+<p>The first bug is the archetype: it throws nothing, delivery works, but the push targets a session that does not exist. From the outside the link simply "does not answer".</p>
+<h2> 5. How to verify</h2>
+<p>Do not trust "it should work now". Leave evidence:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>And what macmini actually received:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>Push log on one side, received text on the other — that is a closed loop.</p>
+<h2> 6. The cost of initiator-side choice</h2>
+<p>"Whoever initiates chooses the target" was the agreed direction:</p>
+<ul>
+<li>the link asks its local user which hub session to use</li>
+<li>without <code>targetSessionId</code> a card appears; if nobody answers, the send is cancelled</li>
+</ul>
+<p>That is correct for interactive use but blocking for unattended work. Mitigations: remember the last choice, or default to a well-known target such as <code>peer-inbox</code>.</p>
+<h2> 7. What was removed</h2>
+<p>An intermediate <code>peer_ask_hub</code> tool sent a message and waited synchronously for the hub turn's text. It duplicated the async push and:</p>
+<ul>
+<li>blocked the caller</li>
+<li>waited forever when the hub session was busy</li>
+<li>could deadlock if the hub called back synchronously</li>
+</ul>
+<p>It was removed. <strong>Prefer async unless you truly need a reply in the same call.</strong></p>
+<h2> 8. Lessons</h2>
+<ul>
+<li><strong>Understand ownership first</strong>: a plugin can only write to sessions it owns</li>
+<li><strong>The push id must be the remote id</strong>: a same-named local variable is a disaster</li>
+<li><strong>Do not trust cached status</strong>: one <code>session/state</code> call beats notification bookkeeping</li>
+<li><strong>Confirm the process really restarted</strong>: a scheduled restart silently did not run, and an old process wasted a long test</li>
+<li><strong>Add the log first</strong>: <code>peer-push.log</code> turned a mystery into one line of failure</li>
+</ul>
+]]></content:encoded>
+      <enclosure url="https://sparksding.github.io/assets/dsh-peer/peer-result-loop.png" type="image/png"/>
+    </item>
     <item>
       <title>Putting the choice on a session: interactive binding in dsh-peer</title>
       <link>https://sparksding.github.io/en/architecture/dsh-peer-selection.html</link>
