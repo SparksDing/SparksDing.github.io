@@ -28,6 +28,7 @@ export const zhSidebar = sidebar([
     collapsible: true,
     children: [
       "dsh-peer.md",
+      "dsh-peer-steer.md",
     ],
   },
 
@@ -372,6 +373,7 @@ export const enSidebar = sidebar([
     collapsible: false,
     children: [
       "dsh-peer.md",
+      "dsh-peer-steer.md",
     ],
   },
 ]);
