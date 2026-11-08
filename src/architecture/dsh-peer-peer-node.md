@@ -156,3 +156,15 @@ link 的 `peer_steer` / `peer_cancel` 调这两个方法，默认目标是 origi
 - **消息和投递分开**：收到 ≠ 投递成功 ≠ 用户看到
 - **失败要留痕**：`peer-push.log`、pending 文件、inbox
 - **测试要隔离**：测试写真实队列，会把真实数据冲掉
+
+## 11. 本机真实例子
+
+下面两张图来自本机日志，不是示意图。
+
+![Agent 内部循环：一次真实的 peer_inbox 调用](/assets/dsh-peer/agent-loop-real.png)
+
+*一次真实的一轮：`turn/start → step/start → assistant/message → tool/call(peer_inbox) → tool/result → step/end → turn/end`，紧接着 hub 把 final text 推回 macmini。*
+
+![Agent 之间的一次真实交互](/assets/dsh-peer/agent-interaction-real.png)
+
+*macmini 的 `peer_send` 进入 linux-vm 的 `session-6883d4db…`，先记 inbox 再 steer 进当前轮；`turn/end` 后以 `[hub]` 推回 `peer-macmini-fingerbot-file-push`。*

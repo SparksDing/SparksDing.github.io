@@ -145,3 +145,15 @@ Use peer_pending to inspect it, then peer_bind to choose a session.
 - **Separate message from delivery**: received ≠ delivered ≠ user-visible
 - **Leave evidence**: `peer-push.log`, the pending file, the inbox
 - **Isolate tests**: a test that writes the real queue destroys real data
+
+## 11. Real examples from this machine
+
+Both diagrams are drawn from local logs, not sketches.
+
+![The agent loop: a real peer_inbox call](/assets/dsh-peer/agent-loop-real.png)
+
+*One real turn: `turn/start → step/start → assistant/message → tool/call(peer_inbox) → tool/result → step/end → turn/end`, followed by the hub pushing the final text back to macmini.*
+
+![A real exchange between two agents](/assets/dsh-peer/agent-interaction-real.png)
+
+*macmini's `peer_send` enters linux-vm's `session-6883d4db…`; the hub records it in the inbox, steers it into the running turn, and pushes the `[hub]` result back to `peer-macmini-fingerbot-file-push` at turn end.*
