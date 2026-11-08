@@ -3,7 +3,7 @@
   <id>https://sparksding.github.io/</id>
   <title>还不知道叫什么名字</title>
   <subtitle>还不知道叫什么名字的博客</subtitle>
-  <updated>2026-11-07T16:19:30.147Z</updated>
+  <updated>2026-11-08T05:37:41.831Z</updated>
   <generator>vuepress-plugin-feed2</generator>
   <link rel="self" href="https://sparksding.github.io/atom.xml"/>
   <link rel="alternate" href="https://sparksding.github.io/"/>
@@ -22,6 +22,121 @@
   <category term="idea"/>
   <category term="webtools"/>
   <category term="前端"/>
+  <entry>
+    <title type="text">把角色拆掉：dsh-peer 的对等重构</title>
+    <id>https://sparksding.github.io/architecture/dsh-peer-peer-node.html</id>
+    <link href="https://sparksding.github.io/architecture/dsh-peer-peer-node.html"/>
+    <updated>2026-11-08T05:36:07.000Z</updated>
+    <summary type="html"><![CDATA[<p>前面两篇做了<a href="/architecture/dsh-peer-selection.html" target="blank">会话选择</a>和<a href="/architecture/dsh-peer-result-push.html" target="blank">异步回传</a>。这一篇是收尾：<strong>把 hub / link 两个角色拆掉</strong>。</p>
+<p>只要节点分两种，工具就会有两套，行为就会有一半是坏的；每修一次都在制造新的不对称。</p>
+]]></summary>
+    <content type="html"><![CDATA[<p>前面两篇做了<a href="/architecture/dsh-peer-selection.html" target="blank">会话选择</a>和<a href="/architecture/dsh-peer-result-push.html" target="blank">异步回传</a>。这一篇是收尾：<strong>把 hub / link 两个角色拆掉</strong>。</p>
+<p>只要节点分两种，工具就会有两套，行为就会有一半是坏的；每修一次都在制造新的不对称。</p>
+<!-- more -->
+<h2> 1. 错误的起点</h2>
+<p>最初的模型：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>于是工具也分了两套：</p>
+<ul>
+<li>hub：<code>peer_ask</code> / <code>peer_send</code> / <code>peer_steer</code> / <code>peer_cancel</code> / <code>peer_pending</code> / <code>peer_bind</code> ...</li>
+<li>link：<code>peer_reply</code> / <code>peer_send</code> / <code>peer_status</code></li>
+</ul>
+<p>结果：</p>
+<ul>
+<li>link 不能 <code>peer_ask</code>，只能发完等推送</li>
+<li>link 没有 <code>peer_pending</code> / <code>peer_inbox</code>，看不到入站记录</li>
+<li>origin 只在 hub 侧记，link 回复时找不到来源</li>
+</ul>
+<p><strong>角色不是节点属性，是一次交互的属性</strong>：谁发消息，谁就是这次的发起方；谁收到，谁就是目标。同一对节点下一轮可以反过来。</p>
+<h2> 2. 一个节点</h2>
+<figure><img src="/assets/dsh-peer/peer-node.png" alt="一个节点，一套工具" tabindex="0" loading="lazy"><figcaption>一个节点，一套工具</figcaption></figure>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p><code>index.js</code> 两边都构造 <code>PeerNode</code>，把现有传输包成 capability，然后调用<strong>同一个</strong> <code>registerPeerTools</code>。</p>
+<h2> 3. 一套工具</h2>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>两端工具名、参数、行为一致。<code>peer</code> 在只有一个对端时可以省略，<code>text</code> 是 <code>prompt</code> 的别名。</p>
+<h2> 4. 一次绑定，之后固定</h2>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>如果当前会话已经有 <strong>origin</strong>（对端发过消息来），直接用它，不弹卡片——无人值守的节点不会卡在选择上。</p>
+<h2> 5. 反向能力</h2>
+<p>hub 新增：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>link 的 <code>peer_steer</code> / <code>peer_cancel</code> 调这两个方法，默认目标是 origin。</p>
+<h2> 6. 轻量总线</h2>
+<p>没有引入完整的消息协议，只做“记录 + 兜底”：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>每条入站都记录，但只有投递失败才排队。这样既不会“推了但看不到”，也不会把正常消息堆在队列里。</p>
+<h2> 7. 感知问题：queue 还是 steer</h2>
+<p>这是最隐蔽的一个。</p>
+<p>消息投递用了 <code>sessionController.prompt(mode: 'queue')</code>，于是：</p>
+<ul>
+<li>投递返回成功</li>
+<li>但消息排在<strong>下一轮</strong></li>
+<li>当前回合还在跑，agent 看不到</li>
+<li>用户却在 GUI 里看到“排队消息”，问：你为什么感知不到？</li>
+</ul>
+<p>改成 <code>mode: 'steer'</code>：插进当前轮的下一个 step，agent 当场看到。若会话空闲，steer 也会起一轮。</p>
+<p>另外，消息进 pending 时，hub 会给最近活跃的会话发一条提示：</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h2> 8. 这一轮修的 bug</h2>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>根因</th>
+<th>修复</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>peer_reply</code> 永远报 no origin</td>
+<td><code>PeerNode</code> 的 origins 与 link server 的 origins 是两张表</td>
+<td><code>originFor</code> 回退到 capability</td>
+</tr>
+<tr>
+<td>定向回复不进 inbox</td>
+<td>定向投递分支提前 <code>return</code>，<code>inbox.push</code> 在它后面</td>
+<td>入站记录移到分支之前</td>
+</tr>
+<tr>
+<td>队列里的消息消失</td>
+<td>auto 模式投递失败只返回 <code>delivered:false</code>，没有入队</td>
+<td>失败进 pending 并写盘</td>
+</tr>
+<tr>
+<td>live pending 被测试覆盖</td>
+<td><code>hub.test</code> 用真实 <code>DSH_HOME</code></td>
+<td>测试用临时目录</td>
+</tr>
+<tr>
+<td><code>peer_send</code> 参数校验失败</td>
+<td>统一工具要求 <code>peer</code> + <code>prompt</code>，旧调用传 <code>text</code></td>
+<td><code>peer</code> 可省、<code>text</code> 别名</td>
+</tr>
+<tr>
+<td>无人值守节点卡住</td>
+<td>每次发送都弹选择卡片</td>
+<td>有 origin 时跳过卡片</td>
+</tr>
+<tr>
+<td>我感知不到排队</td>
+<td>入站用 queue，当前轮看不到</td>
+<td>入站改 steer</td>
+</tr>
+</tbody>
+</table>
+<h2> 9. 测试方式也要改</h2>
+<ul>
+<li>单元测试用临时 <code>DSH_HOME</code>，不碰 live 队列</li>
+<li>集成测试用内存传输，不连真实对端</li>
+<li>真实环境只跑一次收敛验证：步骤 → 预期 → 实际</li>
+<li>不在生产会话里反复发测试消息</li>
+</ul>
+<h2> 10. 教训</h2>
+<ul>
+<li><strong>先对齐模型，再写代码</strong>：节点类型错了，后面全是补丁</li>
+<li><strong>对称不是口号</strong>：工具、origin、回传、错误处理都要同一份</li>
+<li><strong>消息和投递分开</strong>：收到 ≠ 投递成功 ≠ 用户看到</li>
+<li><strong>失败要留痕</strong>：<code>peer-push.log</code>、pending 文件、inbox</li>
+<li><strong>测试要隔离</strong>：测试写真实队列，会把真实数据冲掉</li>
+</ul>
+]]></content>
+    <category term="工程实践"/>
+    <published>2026-11-08T00:00:00.000Z</published>
+  </entry>
   <entry>
     <title type="text">让结果自己回来：dsh-peer 的异步回传与归属边界</title>
     <id>https://sparksding.github.io/architecture/dsh-peer-result-push.html</id>

@@ -3,11 +3,125 @@
   <id>https://sparksding.github.io/en/</id>
   <title>SparksDing Notes</title>
   <subtitle>Notes on backend engineering, distributed systems, and practice.</subtitle>
-  <updated>2026-11-07T16:19:30.147Z</updated>
+  <updated>2026-11-08T05:37:41.831Z</updated>
   <generator>vuepress-plugin-feed2</generator>
   <link rel="self" href="https://sparksding.github.io/en/atom.xml"/>
   <link rel="alternate" href="https://sparksding.github.io/en/"/>
   <category term="Engineering"/>
+  <entry>
+    <title type="text">Removing the roles: making dsh-peer symmetric</title>
+    <id>https://sparksding.github.io/en/architecture/dsh-peer-peer-node.html</id>
+    <link href="https://sparksding.github.io/en/architecture/dsh-peer-peer-node.html"/>
+    <updated>2026-11-08T05:36:07.000Z</updated>
+    <summary type="html"><![CDATA[<p>The previous two posts covered <a href="/en/architecture/dsh-peer-selection.html" target="blank">session selection</a> and <a href="/en/architecture/dsh-peer-result-push.html" target="blank">asynchronous result routing</a>. This one closes the loop: <strong>removing the hub and link roles</strong>.</p>
+<p>As long as there are two node types, there are two tool sets and half the behavior is wrong; every fix creates a new asymmetry.</p>
+]]></summary>
+    <content type="html"><![CDATA[<p>The previous two posts covered <a href="/en/architecture/dsh-peer-selection.html" target="blank">session selection</a> and <a href="/en/architecture/dsh-peer-result-push.html" target="blank">asynchronous result routing</a>. This one closes the loop: <strong>removing the hub and link roles</strong>.</p>
+<p>As long as there are two node types, there are two tool sets and half the behavior is wrong; every fix creates a new asymmetry.</p>
+<!-- more -->
+<h2> 1. The wrong starting point</h2>
+<p>The original model:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>So the tools split in two:</p>
+<ul>
+<li>hub: <code>peer_ask</code> / <code>peer_send</code> / <code>peer_steer</code> / <code>peer_cancel</code> / <code>peer_pending</code> / <code>peer_bind</code> ...</li>
+<li>link: <code>peer_reply</code> / <code>peer_send</code> / <code>peer_status</code></li>
+</ul>
+<p>Consequences:</p>
+<ul>
+<li>the link cannot <code>peer_ask</code>; it sends and waits for a push</li>
+<li>the link has no <code>peer_pending</code> / <code>peer_inbox</code>, so inbound messages are invisible</li>
+<li>origin is recorded only on the hub; the link cannot reply to it</li>
+</ul>
+<p><strong>A role is a property of one exchange, not of a node</strong>: whoever sends is this exchange's initiator; whoever receives is its target. The next exchange can reverse.</p>
+<h2> 2. One node</h2>
+<figure><img src="/assets/dsh-peer/peer-node.png" alt="One node, one tool set" tabindex="0" loading="lazy"><figcaption>One node, one tool set</figcaption></figure>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>Both entry points construct a <code>PeerNode</code>, wrap the existing transports as capabilities, and call the <strong>same</strong> <code>registerPeerTools</code>.</p>
+<h2> 3. One tool set</h2>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>Same names, same parameters, same behavior on both ends. <code>peer</code> may be omitted when a node has a single peer, and <code>text</code> is an alias for <code>prompt</code>.</p>
+<h2> 4. Bind once, then fixed</h2>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>When the conversation already has an <strong>origin</strong> (the peer messaged it), that origin is used and no card appears — an unattended node is never blocked on a picker.</p>
+<h2> 5. Reverse capabilities</h2>
+<p>The hub serves:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div></div></div><p>The link's <code>peer_steer</code> / <code>peer_cancel</code> call those, defaulting to the origin.</p>
+<h2> 6. A lightweight bus</h2>
+<p>No full message protocol, only record + fallback:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>Every inbound message is recorded; only failed deliveries queue. Nothing is lost, and normal traffic does not pile up.</p>
+<h2> 7. Perception: queue or steer</h2>
+<p>The most subtle bug. Delivery used <code>sessionController.prompt(mode: 'queue')</code>:</p>
+<ul>
+<li>delivery reported success</li>
+<li>the message waited for the <strong>next</strong> turn</li>
+<li>the running turn never saw it</li>
+<li>the user saw a queued message in the GUI and asked why the agent could not perceive it</li>
+</ul>
+<p>Switched to <code>mode: 'steer'</code>: injected at the next step, perceived immediately. When the session is idle, steer starts a turn.</p>
+<p>When a message lands in pending, the hub also notifies the most recently active session:</p>
+<div class="language-text line-numbers-mode" data-ext="text"><div class="line-numbers" aria-hidden="true"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h2> 8. Bugs fixed in this round</h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Root cause</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>peer_reply</code> always reports no origin</td>
+<td><code>PeerNode.origins</code> and the link server's origins were two maps</td>
+<td><code>originFor</code> falls back to the capability</td>
+</tr>
+<tr>
+<td>targeted replies never reach the inbox</td>
+<td>the targeted branch returned before <code>inbox.push</code></td>
+<td>record inbound before the branch</td>
+</tr>
+<tr>
+<td>queued messages vanished</td>
+<td>auto mode returned <code>delivered:false</code> without enqueueing</td>
+<td>failures join pending and are persisted</td>
+</tr>
+<tr>
+<td>live pending overwritten</td>
+<td><code>hub.test</code> used the real <code>DSH_HOME</code></td>
+<td>tests use a temp directory</td>
+</tr>
+<tr>
+<td><code>peer_send</code> fails validation</td>
+<td>the unified tool required <code>peer</code> + <code>prompt</code>; callers passed <code>text</code></td>
+<td><code>peer</code> optional, <code>text</code> alias</td>
+</tr>
+<tr>
+<td>unattended node blocks</td>
+<td>every send opened the picker</td>
+<td>skip it when an origin exists</td>
+</tr>
+<tr>
+<td>the agent misses queued messages</td>
+<td>inbound used queue</td>
+<td>inbound uses steer</td>
+</tr>
+</tbody>
+</table>
+<h2> 9. Testing method changed too</h2>
+<ul>
+<li>unit tests use a temporary <code>DSH_HOME</code>, never the live queue</li>
+<li>integration tests use in-memory transports, not a real peer</li>
+<li>live verification runs once with steps, expectations, and actual output</li>
+<li>no repeated test messages in production conversations</li>
+</ul>
+<h2> 10. Lessons</h2>
+<ul>
+<li><strong>Align the model before writing code</strong>: a wrong node type produces patches forever</li>
+<li><strong>Symmetry is not a slogan</strong>: tools, origin, result routing, and errors must be one implementation</li>
+<li><strong>Separate message from delivery</strong>: received ≠ delivered ≠ user-visible</li>
+<li><strong>Leave evidence</strong>: <code>peer-push.log</code>, the pending file, the inbox</li>
+<li><strong>Isolate tests</strong>: a test that writes the real queue destroys real data</li>
+</ul>
+]]></content>
+    <category term="Engineering"/>
+    <published>2026-11-08T00:00:00.000Z</published>
+  </entry>
   <entry>
     <title type="text">Let the result come back: async routing and ownership in dsh-peer</title>
     <id>https://sparksding.github.io/en/architecture/dsh-peer-result-push.html</id>
