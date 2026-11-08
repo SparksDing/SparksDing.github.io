@@ -6,8 +6,8 @@
     <link>https://sparksding.github.io/en/</link>
     <description>Notes on backend engineering, distributed systems, and practice.</description>
     <language>en-US</language>
-    <pubDate>Sun, 08 Nov 2026 05:37:41 GMT</pubDate>
-    <lastBuildDate>Sun, 08 Nov 2026 05:37:41 GMT</lastBuildDate>
+    <pubDate>Sun, 08 Nov 2026 06:55:27 GMT</pubDate>
+    <lastBuildDate>Sun, 08 Nov 2026 06:55:27 GMT</lastBuildDate>
     <generator>vuepress-plugin-feed2</generator>
     <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
     <category>Engineering</category>
@@ -121,6 +121,12 @@
 <li><strong>Leave evidence</strong>: <code>peer-push.log</code>, the pending file, the inbox</li>
 <li><strong>Isolate tests</strong>: a test that writes the real queue destroys real data</li>
 </ul>
+<h2> 11. Real examples from this machine</h2>
+<p>Both diagrams are drawn from local logs, not sketches.</p>
+<figure><img src="/assets/dsh-peer/agent-loop-real.png" alt="The agent loop: a real peer_inbox call" tabindex="0" loading="lazy"><figcaption>The agent loop: a real peer_inbox call</figcaption></figure>
+<p><em>One real turn: <code>turn/start → step/start → assistant/message → tool/call(peer_inbox) → tool/result → step/end → turn/end</code>, followed by the hub pushing the final text back to macmini.</em></p>
+<figure><img src="/assets/dsh-peer/agent-interaction-real.png" alt="A real exchange between two agents" tabindex="0" loading="lazy"><figcaption>A real exchange between two agents</figcaption></figure>
+<p><em>macmini's <code>peer_send</code> enters linux-vm's <code>session-6883d4db…</code>; the hub records it in the inbox, steers it into the running turn, and pushes the <code>[hub]</code> result back to <code>peer-macmini-fingerbot-file-push</code> at turn end.</em></p>
 ]]></content:encoded>
       <enclosure url="https://sparksding.github.io/assets/dsh-peer/peer-node.png" type="image/png"/>
     </item>

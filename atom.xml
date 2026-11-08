@@ -3,7 +3,7 @@
   <id>https://sparksding.github.io/</id>
   <title>还不知道叫什么名字</title>
   <subtitle>还不知道叫什么名字的博客</subtitle>
-  <updated>2026-11-08T05:37:41.831Z</updated>
+  <updated>2026-11-08T06:55:27.566Z</updated>
   <generator>vuepress-plugin-feed2</generator>
   <link rel="self" href="https://sparksding.github.io/atom.xml"/>
   <link rel="alternate" href="https://sparksding.github.io/"/>
@@ -26,7 +26,7 @@
     <title type="text">把角色拆掉：dsh-peer 的对等重构</title>
     <id>https://sparksding.github.io/architecture/dsh-peer-peer-node.html</id>
     <link href="https://sparksding.github.io/architecture/dsh-peer-peer-node.html"/>
-    <updated>2026-11-08T05:36:07.000Z</updated>
+    <updated>2026-11-08T06:53:48.000Z</updated>
     <summary type="html"><![CDATA[<p>前面两篇做了<a href="/architecture/dsh-peer-selection.html" target="blank">会话选择</a>和<a href="/architecture/dsh-peer-result-push.html" target="blank">异步回传</a>。这一篇是收尾：<strong>把 hub / link 两个角色拆掉</strong>。</p>
 <p>只要节点分两种，工具就会有两套，行为就会有一半是坏的；每修一次都在制造新的不对称。</p>
 ]]></summary>
@@ -133,6 +133,12 @@
 <li><strong>失败要留痕</strong>：<code>peer-push.log</code>、pending 文件、inbox</li>
 <li><strong>测试要隔离</strong>：测试写真实队列，会把真实数据冲掉</li>
 </ul>
+<h2> 11. 本机真实例子</h2>
+<p>下面两张图来自本机日志，不是示意图。</p>
+<figure><img src="/assets/dsh-peer/agent-loop-real.png" alt="Agent 内部循环：一次真实的 peer_inbox 调用" tabindex="0" loading="lazy"><figcaption>Agent 内部循环：一次真实的 peer_inbox 调用</figcaption></figure>
+<p><em>一次真实的一轮：<code>turn/start → step/start → assistant/message → tool/call(peer_inbox) → tool/result → step/end → turn/end</code>，紧接着 hub 把 final text 推回 macmini。</em></p>
+<figure><img src="/assets/dsh-peer/agent-interaction-real.png" alt="Agent 之间的一次真实交互" tabindex="0" loading="lazy"><figcaption>Agent 之间的一次真实交互</figcaption></figure>
+<p><em>macmini 的 <code>peer_send</code> 进入 linux-vm 的 <code>session-6883d4db…</code>，先记 inbox 再 steer 进当前轮；<code>turn/end</code> 后以 <code>[hub]</code> 推回 <code>peer-macmini-fingerbot-file-push</code>。</em></p>
 ]]></content>
     <category term="工程实践"/>
     <published>2026-11-08T00:00:00.000Z</published>

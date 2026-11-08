@@ -6,8 +6,8 @@
     <link>https://sparksding.github.io/</link>
     <description>还不知道叫什么名字的博客</description>
     <language>zh-CN</language>
-    <pubDate>Sun, 08 Nov 2026 05:37:41 GMT</pubDate>
-    <lastBuildDate>Sun, 08 Nov 2026 05:37:41 GMT</lastBuildDate>
+    <pubDate>Sun, 08 Nov 2026 06:55:27 GMT</pubDate>
+    <lastBuildDate>Sun, 08 Nov 2026 06:55:27 GMT</lastBuildDate>
     <generator>vuepress-plugin-feed2</generator>
     <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
     <category>工程实践</category>
@@ -136,6 +136,12 @@
 <li><strong>失败要留痕</strong>：<code>peer-push.log</code>、pending 文件、inbox</li>
 <li><strong>测试要隔离</strong>：测试写真实队列，会把真实数据冲掉</li>
 </ul>
+<h2> 11. 本机真实例子</h2>
+<p>下面两张图来自本机日志，不是示意图。</p>
+<figure><img src="/assets/dsh-peer/agent-loop-real.png" alt="Agent 内部循环：一次真实的 peer_inbox 调用" tabindex="0" loading="lazy"><figcaption>Agent 内部循环：一次真实的 peer_inbox 调用</figcaption></figure>
+<p><em>一次真实的一轮：<code>turn/start → step/start → assistant/message → tool/call(peer_inbox) → tool/result → step/end → turn/end</code>，紧接着 hub 把 final text 推回 macmini。</em></p>
+<figure><img src="/assets/dsh-peer/agent-interaction-real.png" alt="Agent 之间的一次真实交互" tabindex="0" loading="lazy"><figcaption>Agent 之间的一次真实交互</figcaption></figure>
+<p><em>macmini 的 <code>peer_send</code> 进入 linux-vm 的 <code>session-6883d4db…</code>，先记 inbox 再 steer 进当前轮；<code>turn/end</code> 后以 <code>[hub]</code> 推回 <code>peer-macmini-fingerbot-file-push</code>。</em></p>
 ]]></content:encoded>
       <enclosure url="https://sparksding.github.io/assets/dsh-peer/peer-node.png" type="image/png"/>
     </item>
